@@ -214,5 +214,5 @@ This plan takes the feature requirements each of the 8 roles raised in [`stable-
 - [x] 跨角色功能需求討論已完成(`stable-profitability-roadmap.md`)
 - [x] 本開發計劃文件已建立
 - [x] Phase 0 — 目標與範圍界定(`scope.md`,已全數確認)
-- [ ] Phase 1 — 策略假說與經濟邏輯(**下一步**)
+- [~] Phase 1 — 策略假說與經濟邏輯(`strategy-hypothesis.md`,已提出 3 個候選策略,**待您選定優先聚焦哪一個**)
 - [ ] Phase 2-9 — 待進行
