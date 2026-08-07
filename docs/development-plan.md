@@ -213,5 +213,6 @@ This plan takes the feature requirements each of the 8 roles raised in [`stable-
 - [x] 8 個專職角色已建立(`.claude/agents/`)
 - [x] 跨角色功能需求討論已完成(`stable-profitability-roadmap.md`)
 - [x] 本開發計劃文件已建立
-- [ ] Phase 0 — 目標與範圍界定(**下一步,待您提供答案**)
-- [ ] Phase 1-9 — 待進行
+- [x] Phase 0 — 目標與範圍界定(`scope.md`,已全數確認)
+- [ ] Phase 1 — 策略假說與經濟邏輯(**下一步**)
+- [ ] Phase 2-9 — 待進行
