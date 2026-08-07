@@ -218,4 +218,5 @@ This plan takes the feature requirements each of the 8 roles raised in [`stable-
 - [x] Phase 8 — 技術選型決策(`tech-stack-decision.md`,**提前拍板**:以 Freqtrade 為基礎框架,不從零自建)
 - [~] Phase 2 — 數學與統計方法論(`statistical-methodology.md`,草稿完成,**待您審閱確認**)
 - [~] Phase 3 — 系統架構規格(`architecture-spec.md`,草稿完成,**待您審閱確認**)
-- [ ] Phase 4-7, 9 — 待進行(Phase 6/7 範圍已因 Phase 8 決策而縮小為「Freqtrade 客製化規格」)
+- [~] Phase 4 — 風控政策(`risk-policy.md`,草稿完成,**待您審閱確認**)
+- [ ] Phase 5-7, 9 — 待進行(Phase 6/7 範圍已因 Phase 8 決策而縮小為「Freqtrade 客製化規格」)
