@@ -1,0 +1,7 @@
+# analysis/ 統計驗證模組的額外依賴(freqtrade 本身已含 numpy/pandas)。
+# docs/backtest-procedure.md 第 0 節工具鏈:numpy/pandas/scipy.stats/statsmodels/arch.bootstrap
+scipy==1.17.1
+statsmodels==0.14.6
+arch==8.0.0
+pyarrow==25.0.0
+pytest==9.1.1
