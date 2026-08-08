@@ -110,9 +110,46 @@
 
 ### 4.1 建議:調整環境網路政策
 
-最直接的做法是把 `data.binance.vision` 加進環境的網路白名單。這是使用者可以自行變更的環境設定,見 [Claude Code on the web 文件](https://code.claude.com/docs/en/claude-code-on-the-web)。
+在 [claude.ai/code](https://claude.ai/code) 訊息框上方的環境選擇器裡,把環境的 **Network access** 改成 **Custom**,在 **Allowed domains** 逐行填入網域,並勾選 **Also include default list of common package managers**(保留 PyPI/GitHub,否則環境會失去套件來源)。**這是使用者才能做的設定,無法從 session 內部變更。**
 
-`data.binance.vision` 是幣安官方的歷史資料公開站,提供逐月 ZIP 的 K 線封存,**不需要 API key,也不會碰到帳戶或下單權限**——就取得歷史 K 棒而言,它比開放 `api.binance.com` 的暴露面更小。放行之後 `freqtrade download-data` 可直接使用,不需要本文件第 3 節的人工匯入路徑。
+需要放行**兩個**網域:
+
+```
+data.binance.vision
+api.binance.com
+```
+
+**為什麼兩個都要 —— 這點我先前講得不夠精確。** 查 Freqtrade 2026.7 原始碼(`exchange/binance.py`、`exchange/binance_public_data.py`)確認其下載路徑是兩段式:
+
+1. 主體從 `data.binance.vision` 抓 ZIP 封存(`get_historic_ohlcv_fast`)
+2. 但該函式需要 `markets=self.markets`,而 `load_markets()` 走 `api.binance.com`;且封存只到前一日,**最近幾根 K 棒仍會回退到 REST API**(原始碼註解:「download the remaining data from rest API」)
+
+**只放行 `data.binance.vision` 會失敗。**
+
+安全性上值得說明的是:這兩個端點在本專案的用法**都是未認證的公開資料**。專案沒有設定任何 API key([`security-policy.md`](./security-policy.md)),`api.binance.com` 的私有端點(下單、帳戶、提領)需要簽章才能呼叫,**放行網域本身不會產生任何帳戶或資金存取能力**。
+
+> ⚠️ 網路政策是在 session 啟動時套用的。改完設定後**需要開一個新的 session** 才會生效,現有 session 不會重新讀取。
+
+放行之後就不需要本文件第 3 節的人工匯入路徑,直接:
+
+```bash
+freqtrade download-data --config user_data/configs/config-common.json \
+    --pairs BTC/USDT ETH/USDT --timeframes 1d \
+    --timerange 20170801-20260731
+```
+
+`download-data` 走的是 Freqtrade 自己的下載與寫入流程,不會經過 `ingest_market_data.py`。**因此下載完成後仍須手動跑一次品質檢查**,才算完成 1.4 節「進入任何 fold 之前的強制步驟」:
+
+```bash
+.venv/bin/python -c "
+from freqtrade.data.history import load_pair_history
+from pathlib import Path
+from analysis.data_quality import check_ohlcv
+for p in ['BTC/USDT','ETH/USDT']:
+    df = load_pair_history(p,'1d',Path('user_data/data/binance'))
+    print(check_ohlcv(df,p).summary())
+"
+```
 
 ### 4.2 或:在本環境外下載後提供檔案
 
