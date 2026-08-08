@@ -235,5 +235,10 @@ This plan takes the feature requirements each of the 8 roles raised in [`stable-
 - [x] 過程中順帶解決 3 項 `go-no-go-checklist.md` 4.1 節列出的待查證項目(protections 歸屬、MaxDrawdown 雙實例並存、`stop_duration_candles` 換算),詳見該文件更新
 - [ ] **卡點:此 Claude Code 執行環境的對外網路被 egress proxy 擋下,無法連線 Binance API**,因此 `freqtrade download-data`/`backtesting` 無法在此環境端到端驗證。需要在能連上 Binance 的真實環境(您的本機或 VPS)完成:下載歷史資料 → 跑 `backtest-procedure.md` 的 walk-forward 驗證流程 → 確認 Phase 2 通過門檻
 - [x] `analysis/` 目錄下 `backtest-procedure.md` 第 8 節規劃的 9 個統計驗證模組(DSR、Newey-West、Kelly、蒙地卡羅回撤等)已實作,**23 個 pytest 測試全數通過**,含 `statistical-methodology.md` 兩個數值示例(DSR≈0.80、Kelly risk_fraction≈7.07%)的精確重現;自訂 hyperopt loss(`PurgedTradeSharpeLoss`)已通過 Freqtrade 真實 resolver 驗證可載入
+- [x] 合成資料管線整合測試(`analysis/tools/`):端到端跑過 backtesting → hyperopt → analysis,**找出 2 個會靜默產生錯誤結論的缺陷並修正**(MAX_LOSS 哨兵值汙染 sigma_SR 使 DSR 恆為 0;hyperopt 參數檔為共用可變狀態,天真的 runner 會讓 walk-forward 失效),完整記錄於 `docs/pipeline-findings.md`
+- [x] walk-forward 執行器(`analysis/tools/run_walk_forward.py`):Pass A 校準 → Pass B 正式輪全自動化,三個關鍵約束寫進程式結構並有迴歸測試;支援 `--resume` 中斷續跑
 - [ ] Kelly 倉位公式的 `f*` 待真實歷史資料跑完 9-fold walk-forward 後,由 `analysis/report.py` 自動算出並接回策略的 `custom_stake_amount`(目前策略程式碼暫用 `risk-policy.md` 硬上限,`analysis/` 模組本身已就緒等待真實資料)
-- [ ] 完整 9-fold walk-forward 執行(需要真實歷史資料 + 長時間 hyperopt 運算)待您在能連上 Binance 的環境執行 `docs/backtest-procedure.md` 第 4 節流程
+- [ ] **完整 9-fold walk-forward 執行 —— 這是目前唯一的阻塞項**,需要真實歷史資料,在能連上 Binance 的環境執行:
+      1. `freqtrade download-data ... --timerange 20190901-`
+      2. `python analysis/tools/run_walk_forward.py --pass a --epochs 200`
+      3. `python analysis/tools/run_walk_forward.py --pass b --epochs 1000 --embargo-days <Pass A 校準值>`
