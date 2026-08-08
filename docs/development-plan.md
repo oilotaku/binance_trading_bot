@@ -222,4 +222,4 @@ This plan takes the feature requirements each of the 8 roles raised in [`stable-
 - [~] Phase 5 — 安全政策(`security-policy.md`,草稿完成,**待您審閱確認**)
 - [~] Phase 6 — 回測框架與驗證程序(`backtest-procedure.md`,草稿完成,**待您審閱確認**)
 - [~] Phase 7 — 執行層技術規格(`execution-spec.md`,草稿完成,**待您審閱確認**)
-- [ ] Phase 9 — Go/No-Go 檢查清單(**下一步**,Phase 0-8 全部完成後的最終彙整)
+- [~] Phase 9 — Go/No-Go 檢查清單(`go-no-go-checklist.md`,彙整完成,**待您最終確認**——確認後 Phase 0-9 全數結案,可進入 Phase 10 實作)
