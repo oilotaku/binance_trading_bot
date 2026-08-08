@@ -22,12 +22,7 @@ import talib.abstract as ta
 from pandas import DataFrame
 
 from freqtrade.persistence import Trade
-from freqtrade.strategy import (
-    DecimalParameter,
-    IntParameter,
-    IStrategy,
-    stoploss_from_absolute,
-)
+from freqtrade.strategy import IntParameter, IStrategy, stoploss_from_absolute
 
 
 class RegimeFilteredMomentumBreakout(IStrategy):
@@ -59,16 +54,39 @@ class RegimeFilteredMomentumBreakout(IStrategy):
     # architecture-spec.md 3.3 節:須 >= max(N, M, ATR週期) + 緩衝,避免指標未穩定(NaN)產生錯誤訊號
     startup_candle_count: int = 100
 
-    # --- Hyperopt 可調參數(architecture-spec.md 3.2 節:訊號邏輯參數,可調) ---
-    donchian_period = IntParameter(20, 55, default=35, space="buy", optimize=True, load=True)
-    volume_ma_period = IntParameter(10, 30, default=20, space="buy", optimize=True, load=True)
-    volume_multiplier = DecimalParameter(
-        1.0, 3.0, default=1.5, decimals=1, space="buy", optimize=True, load=True
-    )
-    atr_period = IntParameter(10, 21, default=14, space="sell", optimize=True, load=True)
-    # risk-policy.md 2.1 節:k 的 hyperopt 搜尋邊界 [2.0, 4.0],起點 3.0
-    atr_multiplier = DecimalParameter(
-        2.0, 4.0, default=3.0, decimals=1, space="sell", optimize=True, load=True
+    # --- 事前指定的參數(CP-003,2026-08-08 核准)---
+    #
+    # 依 CP-003 2.1 節,以下四個值在**看到任何真實資料的回測結果之前**寫死。
+    # 這不是效能或方便考量:DSR 懲罰的是「總共試了幾次」,把搜尋次數從 200 降到 5
+    # 才讓通過門檻從年化 Sharpe 4.01 降到 1.18,首次落入 scope.md 的目標區間。
+    #
+    # ⚠️ 這些值**不得**因為回測結果不理想而事後調整。那樣做會讓 N 從 5 悄悄變大,
+    #    CP-003 第 3 節的門檻計算隨之失效,而且不會有任何機制報錯 ——
+    #    唯一的防線是紀律,以及 CP-003 核准 commit 的時間戳。
+    #    若這 5 個點都不理想,正確反應是接受策略未通過(CP-003 5.1 節)。
+    #
+    # 各值依據(強度見 CP-003 2.1 節):
+    #   atr_period=14        Wilder (1978) 提出 ATR 時的原始週期          🟢 強
+    #   atr_multiplier=3.0   risk-policy.md 2.1 節早已訂為起點            🟢 強
+    #   volume_ma_period=20  約一個月交易日,通用慣例;次要濾網非訊號本身  🟡 中
+    #   volume_multiplier=1.5「放量確認」的常見門檻,無原典出處            🟠 弱
+    ATR_PERIOD = 14
+    ATR_MULTIPLIER = 3.0
+    VOLUME_MA_PERIOD = 20
+    VOLUME_MULTIPLIER = 1.5
+
+    # --- 唯一掃描的參數(CP-003 2.2 節)---
+    #
+    # donchian_period 是訊號的定義本身,而文獻恰好給出兩個同樣經典的值:
+    # Turtle System 1 用 20 日突破、System 2 用 55 日 —— 沒有單一可辯護的先驗,
+    # 硬選一個是假裝我們有一個實際上沒有的確定性。
+    #
+    # 掃描 {20, 30, 40, 50, 55}(端點即兩個經典值),恰好消耗 N=5。
+    # 保留為 IntParameter 是為了讓 5 個點能透過 Freqtrade 既有的參數覆寫機制注入;
+    # optimize=False —— 它不參與任何搜尋演算法,由 run_parameter_scan.py 逐點明確指定。
+    DONCHIAN_SCAN_POINTS = (20, 30, 40, 50, 55)
+    donchian_period = IntParameter(
+        20, 55, default=35, space="buy", optimize=False, load=True
     )
 
     # --- 治理硬上限(architecture-spec.md 3.2 節:絕不可作為 hyperopt 可調參數,一律寫死) ---
@@ -119,36 +137,34 @@ class RegimeFilteredMomentumBreakout(IStrategy):
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         """向量化計算 Donchian 通道、成交量均量、ATR。全部指標僅使用已收盤 K 棒。"""
-        for n in self.donchian_period.range:
+        # 只算 DONCHIAN_SCAN_POINTS 這 5 個週期,不是整個 20–55 的 range ——
+        # CP-003 之後掃描點是明確枚舉的,多算的欄位不會被任何訊號讀到。
+        for n in self.DONCHIAN_SCAN_POINTS:
             # .shift(1):今天的突破比較的是「不含今天」的過去 N 日最高價 —
             # strategy-hypothesis.md「強制隔根進場,不可用未收盤K棒判斷」在指標層級的落實,
             # 不是效能考量。
             dataframe[f"donchian_upper_{n}"] = (
                 dataframe["high"].rolling(window=n).max().shift(1)
             )
-
-        for n in self.donchian_period.range:
             dataframe[f"donchian_lower_{n}"] = (
                 dataframe["low"].rolling(window=n).min().shift(1)
             )
 
-        for m in self.volume_ma_period.range:
-            dataframe[f"volume_ma_{m}"] = dataframe["volume"].rolling(window=m).mean()
-
-        for p in self.atr_period.range:
-            dataframe[f"atr_{p}"] = ta.ATR(dataframe, timeperiod=p)
+        # 以下兩個週期已由 CP-003 固定,不再需要對整個 range 預算欄位
+        dataframe["volume_ma"] = (
+            dataframe["volume"].rolling(window=self.VOLUME_MA_PERIOD).mean()
+        )
+        dataframe["atr"] = ta.ATR(dataframe, timeperiod=self.ATR_PERIOD)
 
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         n = self.donchian_period.value
-        m = self.volume_ma_period.value
-        x = self.volume_multiplier.value
 
         dataframe.loc[
             (
                 (dataframe["close"] > dataframe[f"donchian_upper_{n}"])
-                & (dataframe["volume"] >= dataframe[f"volume_ma_{m}"] * x)
+                & (dataframe["volume"] >= dataframe["volume_ma"] * self.VOLUME_MULTIPLIER)
                 & (dataframe["volume"] > 0)
             ),
             "enter_long",
@@ -186,12 +202,11 @@ class RegimeFilteredMomentumBreakout(IStrategy):
         if dataframe.empty:
             return None  # 拿不到資料時不覆寫,退回 class attribute 的 -25% 後備值
 
-        atr_col = f"atr_{self.atr_period.value}"
-        last_atr = dataframe[atr_col].iloc[-1]
+        last_atr = dataframe["atr"].iloc[-1]
         if pd.isna(last_atr) or last_atr <= 0:
             return None  # 輸入不合理,不覆寫(fail closed,呼應 security-policy.md 5.2 節輸入合理性檢查)
 
-        k = self.atr_multiplier.value
+        k = self.ATR_MULTIPLIER
         stop_price = current_rate - (k * last_atr)
         if stop_price <= 0:
             return None
@@ -302,12 +317,11 @@ class RegimeFilteredMomentumBreakout(IStrategy):
         if dataframe.empty:
             return 0.0
 
-        atr_col = f"atr_{self.atr_period.value}"
-        last_atr = dataframe[atr_col].iloc[-1]
+        last_atr = dataframe["atr"].iloc[-1]
         if pd.isna(last_atr) or last_atr <= 0 or current_rate <= 0:
             return 0.0
 
-        k = self.atr_multiplier.value
+        k = self.ATR_MULTIPLIER
 
         # risk-policy.md 4.2 節:合併曝險上限。先算目前已用掉多少 combined risk_fraction。
         used_risk_fraction = 0.0
