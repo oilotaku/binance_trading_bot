@@ -21,7 +21,7 @@ CP-004 第二層的比較基準:**每日再平衡等權 50/50 BTC/ETH 買進持�
     策略要回答的問題。**兩標的策略應對照兩標的基準。**
 
     ⚠️ 誠實揭露:50/50(Sharpe 0.3405)也**確實比 BTC 單一(0.44)更容易超越**。
-    此選擇由專案負責人於 2026-08-08 定案,**時點早於任何策略二接觸資料**,
+    此選擇由專案負責人於 2026-08-08 定案,**時點早於任何策略四接觸資料**,
     符合預先登錄紀律。
 """
 
@@ -99,15 +99,23 @@ def performance_summary(log_returns: np.ndarray | pd.Series, periods_per_year: i
 
 def zero_skill_baseline(benchmark_mdd: float, mdd_cap: float = MAX_DRAWDOWN_CAP) -> dict:
     """
-    CP-004 第一層的「零技巧基準」。
+    CP-004 第一層的「零技巧基準」:縮放曝險到剛好使 MDD 等於 `mdd_cap` 的固定曝險。
 
-    把基準曝險縮到 `w = mdd_cap / benchmark_mdd` 倍,回撤與報酬**同比例**縮小,
-    而 Sharpe 完全不變 —— 這是機械後果,不需要任何 edge。
+    ⚠️ **CP-006 修正(2026-08-08):** 原實作用 `w = mdd_cap / benchmark_mdd`
+    (百分比空間線性),那是錯的——第一次策略四執行拿它推算 `σ_target`,
+    實際卻得到 MDD 51.78% 而非目標的 30%(見 docs/strategy-4-run-1-invalid.md
+    第 1 節)。**回撤在對數空間才隨曝險線性縮放**:
 
-    因此「在 MDD ≤ cap 之下保留的報酬比例」若只等於 `w`,代表策略沒有比
-    單純降低曝險做得更好。**這是第一層的及格線,不是成就。**
+        D_log(w) = w · D_log(基準),   D_log = −ln(1 − MDD)
+        w = −ln(1 − mdd_cap) / −ln(1 − benchmark_mdd)
+
+    縮放曝險不改變 Sharpe(對數報酬線性縮放的直接結果),這一點不受此次修正影響——
+    「在 MDD ≤ cap 之下保留的報酬比例」若只等於 `w`,代表策略沒有比單純降低曝險
+    做得更好。**這仍是第一層的及格線,不是成就。**
     """
-    if benchmark_mdd <= 0:
+    if benchmark_mdd <= 0 or benchmark_mdd >= 1.0:
         return {"exposure": float("nan"), "required_retention": float("nan")}
-    w = min(1.0, mdd_cap / benchmark_mdd)
+    d_log_cap = -np.log(1 - mdd_cap)
+    d_log_bench = -np.log(1 - benchmark_mdd)
+    w = min(1.0, d_log_cap / d_log_bench)
     return {"exposure": w, "required_retention": w}

@@ -106,7 +106,7 @@ def test_ramp_is_not_an_absorbing_state():
 
     第一次執行時斜坡用**歷史全期**回撤:曝險歸零 → 權益凍結 → 回撤永遠停在 40%
     → 曝險永遠是 0。策略在第 826 天死亡,其後 75% 的樣本期只是一條水平線
-    (見 docs/strategy-2-run-1-invalid.md 第 2 節)。
+    (見 docs/strategy-4-run-1-invalid.md 第 2 節)。
 
     改用滾動視窗後,舊高點會隨時間滾出視窗,策略必須能恢復。
     """

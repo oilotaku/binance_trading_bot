@@ -1,5 +1,5 @@
 """
-策略二的核心邏輯:波動度目標化(CP-004 / CP-005 已核准的規格)。
+策略四的核心邏輯:波動度目標化(CP-004 / CP-005 已核准的規格)。
 
 刻意實作成**與 Freqtrade 無關的純函式**,理由:
     第一層的判定是組合層的權益曲線問題,
@@ -8,7 +8,7 @@
     Freqtrade 端的實作(執行層)另行對接,但**判定以本模組為準**。
 
 事前指定的參數,全部來自已核准文件,不得在此優化:
-    W                = 20      strategy-2-hypothesis.md 2.1 節
+    W                = 20      strategy-4-hypothesis.md 2.1 節
     SIGMA_TARGET     = 0.123   CP-006 修正(原 0.25 的推導把回撤當成百分比線性)
     MAX_EXPOSURE     = 0.80    CP-005 3.5 節(risk-policy.md 4.3 節的合併名目上限)
     REBALANCE_BAND   = 0.20    CP-005 第 4 節
@@ -88,7 +88,7 @@ def simulate(
 
     :param cost_per_turnover: 每單位換手的成本。取 0.1% 手續費 + 5bps 滑價 = 0.15%,
         對齊 backtest-procedure.md 第 2 節。**成本必須計入**,否則換手的代價被隱藏
-        (strategy-2-hypothesis.md 第 8 節列為第四個可能的失敗方式)。
+        (strategy-4-hypothesis.md 第 8 節列為第四個可能的失敗方式)。
 
     :return: dict(returns, exposure, turnover, ...) —— 報酬為**扣除成本後**
 
@@ -158,7 +158,7 @@ def zero_skill_control(
     對照組:**固定曝險**,不隨波動調整。
 
     這是 CP-004 第一層的零技巧基準 —— 縮放曝險不改變 Sharpe(對數空間線性縮放),
-    策略二若沒有比它好,就等於什麼都沒做。
+    策略四若沒有比它好,就等於什麼都沒做。
 
     ⚠️ CP-006 修正:`exposure` 應傳入**策略實際實現的平均曝險**,而非由
     「MDD上限 / 基準MDD」推算。假說本來就寫的是「在相同的平均曝險下」比較,

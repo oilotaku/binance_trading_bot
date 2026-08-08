@@ -2,11 +2,11 @@
 平滑趨勢狀態空間模型(local linear trend,σ_L²=0)的 Kalman 濾波,
 用於「以趨勢自身的統計訊號判定趨勢結束」。
 
-⚠️ 這是為**策略二假說**準備的工具,不是策略一的修補。策略一已依
+⚠️ 這是為**策略五假說**準備的工具,不是策略一的修補。策略一已依
 docs/pass-b-results.md 判定未通過,且依 CP-003 §4.0.4 不得再調整後重測。
 
 ---
-數學動機(完整推導見 docs/proposals/exit-mechanism-hypothesis.md):
+數學動機(完整推導見 docs/change-proposals/strategy-5-exit-mechanism-hypothesis.md):
 
 固定 k×ATR 移動停損的出場決策**只用到「距峰值的回撤」這一個統計量**。
 對於「趨勢是否仍在持續」這個推論問題,回撤不是充分統計量 —— 兩條回撤幅度相同

@@ -7,7 +7,7 @@
 
 ⚠️ 但與 long_memory.py 不同,本模組**不是零 N 成本**:它需要指定特徵、鄰居數、
    預測期與 embargo。每跑一個配置就消耗一次參數搜尋額度
-   (見 docs/proposals/ml-and-exogenous-data-assessment.md 第 1 節的 N 預算)。
+   (見 docs/change-proposals/ml-and-exogenous-data-assessment.md 第 1 節的 N 預算)。
    **請事前指定配置再跑,不要掃描。**
 
 三個必須做對、少一個結果就沒有意義的地方:

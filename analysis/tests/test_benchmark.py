@@ -34,11 +34,29 @@ def test_sharpe_annualization_uses_365_not_252():
     assert abs(s["sharpe"] - r.mean() / r.std() * np.sqrt(252)) > 1e-3
 
 
-def test_zero_skill_baseline_is_proportional():
-    """回撤上限 30%、基準回撤 88.32% -> 曝險與保留報酬同為 33.97%。"""
+def test_zero_skill_baseline_uses_log_space_scaling():
+    """
+    CP-006 修正:回撤在對數空間才隨曝險線性縮放,不是百分比空間。
+    回撤上限 30%、基準回撤 88.32% -> 曝險應為約 16.61%,不是天真的 30/88.32=33.97%
+    (那個算法正是 docs/strategy-4-run-1-invalid.md 第 1 節記錄的錯誤)。
+    """
     b = bm.zero_skill_baseline(0.8832, 0.30)
-    assert abs(b["exposure"] - 0.30 / 0.8832) < 1e-12
+    assert abs(b["exposure"] - 0.1661) < 1e-3
     assert b["exposure"] == b["required_retention"]
+
+
+def test_zero_skill_baseline_actually_produces_target_mdd():
+    """
+    端到端驗證:用推算出的曝險縮放基準,實際 MDD 應等於 mdd_cap ——
+    這正是第一次策略四執行失敗的地方(推算出的曝險給出 MDD 51.78% 而非 30%)。
+    """
+    rng = np.random.default_rng(0)
+    bench_r = rng.normal(0.0008, 0.03, 5000)
+    bench_mdd = bm.performance_summary(bench_r)["max_drawdown"]
+
+    w = bm.zero_skill_baseline(bench_mdd, 0.30)["exposure"]
+    scaled_mdd = bm.performance_summary(w * bench_r)["max_drawdown"]
+    assert abs(scaled_mdd - 0.30) < 0.01
 
 
 def test_zero_skill_baseline_capped_at_full_exposure():

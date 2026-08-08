@@ -6,7 +6,7 @@
 
 ## 1. 目標報酬與可接受的最大回撤 / Target Return & Max Drawdown
 
-> ## 🔴 本節目標已被證明內部矛盾,修訂提案見 [`CP-004`](./proposals/CP-004-revised-targets.md)(2026-08-08)
+> ## 🔴 本節目標已被證明內部矛盾,修訂提案見 [`CP-004`](./change-proposals/CP-004-revised-targets.md)(2026-08-08)
 >
 > **以下三個數字不能同時成立,而這與任何回測結果無關。** `報酬 = Sharpe × 波動`,
 > 同時鎖定報酬與 Sharpe 就等於鎖定了波動。蒙地卡羅(8.96 年 × 20,000 次)顯示:
@@ -30,7 +30,7 @@
 >
 > ---
 >
-> ### ✅ 修訂後的目標([`CP-004`](./proposals/CP-004-revised-targets.md),2026-08-08 核准)
+> ### ✅ 修訂後的目標([`CP-004`](./change-proposals/CP-004-revised-targets.md),2026-08-08 核准)
 >
 > **比較基準:每日再平衡等權 50/50 BTC/ETH**(CAGR 28.59%、Sharpe 0.3405、MDD 88.32%)。
 > 定義鎖在 `analysis/benchmark.py`,不是文件裡的一個數字 —— 基準是治理參數,與門檻同級。

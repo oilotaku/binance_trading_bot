@@ -1,9 +1,9 @@
-# 策略二 Phase 1 假說:波動度目標化(Volatility Targeting)
+# 策略四 Phase 1 假說:波動度目標化(Volatility Targeting)
 
-> 狀態:**✅ 假說已核准(2026-08-08)。** 但執行被 [`CP-005`](./proposals/CP-005-risk-policy-for-always-in-market.md) 阻擋:risk-policy.md 的九項風控機制有七項與「永遠在市」不相容,且 CP-004 的 30% 回撤目標與現行 15% kill switch 直接衝突。
+> 狀態:**✅ 假說已核准(2026-08-08)。** 但執行被 [`CP-005`](./change-proposals/CP-005-risk-policy-for-always-in-market.md) 阻擋:risk-policy.md 的九項風控機制有七項與「永遠在市」不相容,且 CP-004 的 30% 回撤目標與現行 15% kill switch 直接衝突。
 > **尚未對真實資料評估任何績效。**
 > 日期:2026-08-08 ｜ 提出者:quant-strategist、quant-mathematician
-> 前置:[`CP-004`](./proposals/CP-004-revised-targets.md)(已核准的兩層目標)、[`pass-b-results.md`](./pass-b-results.md)、[`ml-and-exogenous-data-assessment.md`](./proposals/ml-and-exogenous-data-assessment.md)
+> 前置:[`CP-004`](./change-proposals/CP-004-revised-targets.md)(已核准的兩層目標)、[`pass-b-results.md`](./pass-b-results.md)、[`ml-and-exogenous-data-assessment.md`](./change-proposals/ml-and-exogenous-data-assessment.md)
 
 ---
 
@@ -17,7 +17,7 @@
 
 策略一的假說是「趨勢會延續」。我們測了,**測不到**。
 
-策略二的假說不同,而且前提可以**在建構任何策略之前**直接量測。用嚴格因果的方式(過去 20 日已實現波動 → 未來 20 日):
+策略四的假說不同,而且前提可以**在建構任何策略之前**直接量測。用嚴格因果的方式(過去 20 日已實現波動 → 未來 20 日):
 
 | | 過去波動 → **未來波動** | 過去波動 → **未來報酬** |
 |---|---|---|
@@ -34,7 +34,7 @@
 | 未來報酬(變異數比檢定,`q=2..90`) | — | ❌ 所有時間尺度都測不到 |
 | 未來報酬(k-NN 類比) | 0.005 – 0.010 | ⚠️ 顯著但**方向為負**,量級不足 |
 
-**策略一失敗在它押的是右邊那一欄。策略二押左邊那一欄。**
+**策略一失敗在它押的是右邊那一欄。策略四押左邊那一欄。**
 
 ---
 
@@ -59,7 +59,7 @@
 
 ### 2.2 `σ_target = 25%` 的來源
 
-它由 [`CP-004`](./proposals/CP-004-revised-targets.md) 第一層的零技巧基準**推導**而來,不是選出來的:
+它由 [`CP-004`](./change-proposals/CP-004-revised-targets.md) 第一層的零技巧基準**推導**而來,不是選出來的:
 
 ```
 零技巧曝險 w₀ = MDD上限 / 基準MDD = 30.00% / 88.32% = 0.3397
@@ -75,7 +75,7 @@
 
 理由與 [`post-mortem-strategy-1.md`](./post-mortem-strategy-1.md) 4.2 節相同:**「波動度可預測而報酬不可預測」這個洞察,是我們看過這份資料的變異數比檢定、k-NN 診斷與波動度迴歸之後才得到的。** 名義參數數量不等於研究者自由度。
 
-**依 [`CP-004`](./proposals/CP-004-revised-targets.md) 已核准的門檻(`ρ≥0.7`、`N` 保守認定),第二層門檻為 `Δ ≥ 0.78`。** 本假說不因為 `N=1` 好看就去主張它。
+**依 [`CP-004`](./change-proposals/CP-004-revised-targets.md) 已核准的門檻(`ρ≥0.7`、`N` 保守認定),第二層門檻為 `Δ ≥ 0.78`。** 本假說不因為 `N=1` 好看就去主張它。
 
 ---
 
@@ -105,7 +105,7 @@
 
 ## 4. 為什麼它滿足 CP-004 的設計約束
 
-[`CP-004`](./proposals/CP-004-revised-targets.md) 3.3 節要求 `ρ ≥ 0.7`,否則配對檢定失去檢定力。
+[`CP-004`](./change-proposals/CP-004-revised-targets.md) 3.3 節要求 `ρ ≥ 0.7`,否則配對檢定失去檢定力。
 
 **波動度目標化天然滿足這個約束:它永遠在市,只改變曝險大小,方向永遠與基準相同。** 預期 `ρ` 應在 0.85 以上。
 
@@ -119,7 +119,7 @@
 
 **本假說主要瞄準第一層(回撤控制),不主張能通過第二層。**
 
-第二層要求 `Δ ≥ 0.78`,而 [`CP-004`](./proposals/CP-004-revised-targets.md) 3.4.3 節給了一個直觀參照:**BTC 與 ETH 的年化 Sharpe 差了 0.21,9 年資料仍無法在統計上區分。** 要證明 `Δ ≥ 0.78`,是那個差距的近四倍。
+第二層要求 `Δ ≥ 0.78`,而 [`CP-004`](./change-proposals/CP-004-revised-targets.md) 3.4.3 節給了一個直觀參照:**BTC 與 ETH 的年化 Sharpe 差了 0.21,9 年資料仍無法在統計上區分。** 要證明 `Δ ≥ 0.78`,是那個差距的近四倍。
 
 文獻上波動度管理對 Sharpe 的改善通常在 0.1–0.3 量級 —— **若真是這個量級,第二層在 9 年資料上證明不了。**
 
@@ -132,7 +132,7 @@
 | 文件 | 關係 |
 |---|---|
 | [`scope.md`](./scope.md) | 標的池(BTC+ETH)、現貨、無槓桿、模擬資金 —— **全部不變** |
-| [`risk-policy.md`](./risk-policy.md) | 🔴 **已檢查,結果是重大衝突** —— 見 [`CP-005`](./proposals/CP-005-risk-policy-for-always-in-market.md)。九項機制有七項不適用或直接衝突,其中 kill switch 15% < CP-004 目標 30%,策略永遠不可能達到它被要求達到的營運點 |
+| [`risk-policy.md`](./risk-policy.md) | 🔴 **已檢查,結果是重大衝突** —— 見 [`CP-005`](./change-proposals/CP-005-risk-policy-for-always-in-market.md)。九項機制有七項不適用或直接衝突,其中 kill switch 15% < CP-004 目標 30%,策略永遠不可能達到它被要求達到的營運點 |
 | [`backtest-procedure.md`](./backtest-procedure.md) | 1.4 節資料品質規則不變;第 4 節的驗證流程需要新增第一層的檢查 |
 | [`statistical-methodology.md`](./statistical-methodology.md) | 第二層改用 `analysis/sharpe_difference.py` 的配對檢定,取代絕對 DSR |
 
@@ -152,5 +152,5 @@
 - **第 1 節的波動度可預測性測量跑在我們已經看過的資料上。** 它是市場性質的描述,不從候選策略中挑選任何東西;但**這個假說確實是在看到它之後才形成的**,這正是 2.3 節主張 `N=10` 而非 `N=1` 的原因。
 - **`σ_target = 25%` 的推導用到基準的實測波動(73.8%)與 MDD(88.32%)**,兩者都來自這份資料。這是一個**已看過資料的參數**,雖然它是被約束推導出來的而非被優化出來的。若要完全乾淨,應用先驗的波動估計 —— 但那會引入另一個任意選擇。**此取捨記錄在案。**
 - **波動度目標化是一個廣為人知的方法**(Moreira & Muir 2017 等),不是本專案的發明。我方未取得原文,對其效果量級的預期(Sharpe 改善 0.1–0.3)來自二手印象,**應在採用前核實**(同 [`reading-list.md`](./reading-list.md) 第 8 節)。
-- **第 3 節的預測尚未驗證。** 本文件撰寫於任何策略二回測之前。
+- **第 3 節的預測尚未驗證。** 本文件撰寫於任何策略四回測之前。
 - **未評估交易成本的影響。** 每日再平衡曝險會產生換手,[`backtest-procedure.md`](./backtest-procedure.md) 第 2 節的成本模型必須套用 —— 高換手可能吃掉回撤改善帶來的好處,**這是第 3.2 節之外的第四個可能失敗方式**。

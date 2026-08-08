@@ -1,8 +1,8 @@
 """
 驗證 analysis/trend_filter.py。
 
-⚠️ **全部使用合成資料。** 本模組是為策略二假說準備的,依 CP-003 與
-docs/proposals/exit-mechanism-hypothesis.md 的預先登錄紀律,在假說正式核准之前
+⚠️ **全部使用合成資料。** 本模組是為策略五假說準備的,依 CP-003 與
+docs/change-proposals/strategy-5-exit-mechanism-hypothesis.md 的預先登錄紀律,在假說正式核准之前
 不得對真實 BTC/ETH 資料評估其績效 —— 那會讓「先登錄、後檢驗」的順序失效。
 這裡測的是**濾波器數學正確性**,不是策略績效。
 """

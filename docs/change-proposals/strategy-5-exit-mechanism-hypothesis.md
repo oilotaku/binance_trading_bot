@@ -1,6 +1,10 @@
-# 策略二假說(提案):以趨勢自身的統計訊號判定出場
+# 策略五假說(提案):以趨勢自身的統計訊號判定出場
 
-> 狀態:**🔴 提案中,未核准 / PROPOSED。尚未對真實資料評估任何績效。**
+> 狀態:**⏸️ 提案中,未核准,未被優先處理 / PROPOSED, NOT PURSUED。尚未對真實資料評估任何績效。**
+>
+> **命名說明(2026-08-08):** 本文件原稱「策略二」,與 [`strategy-hypothesis.md`](../strategy-hypothesis.md) Phase 1 backlog 已存在的「策略二:流動性衝擊均值回歸」撞名,現改稱「策略五」以消除歧義,內容未變。
+>
+> **後續決策說明:** 提出後,[`target-reassessment.md`](./target-reassessment.md) 與 [`CP-004`](./CP-004-revised-targets.md) 改變了績效目標的形式(兩層制),連帶引導出 [`strategy-4-hypothesis.md`](../strategy-4-hypothesis.md)(波動度目標化)這條路線並優先執行。本提案未被正式否決,但**未被優先處理**,`analysis/trend_filter.py` 已實作但未串接進任何評估流程。
 > 日期:2026-08-08 ｜ 提出者:quant-mathematician
 > 前置:[`post-mortem-strategy-1.md`](../post-mortem-strategy-1.md)(診斷)、[`pass-b-results.md`](../pass-b-results.md)(策略一未通過)
 > 分級:**新策略假說**,需走完整的 Phase 1 → Phase 6 流程
@@ -179,7 +183,7 @@ Kalman 濾波對此模型是**最適線性濾波器**,逐期給出斜率後驗�
 
 1. 本假說核准,**含 4.1 節的界線裁決與 4.2 節的 `N` 認定** → commit
 2. 寫 Phase 1 策略假說文件(經濟假說、可證偽形式) → commit
-3. 依 [`CP-003`](../change-proposals/CP-003-fixed-parameters.md) 的模式,把所有參數事前固定 → commit
+3. 依 [`CP-003`](./CP-003-fixed-parameters.md) 的模式,把所有參數事前固定 → commit
 4. **以上全部 commit 完成後**,才對真實資料執行
 
 **順序不可顛倒。** 這正是策略一之所以能給出一個可信(即使是失敗的)結論的原因。

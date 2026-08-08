@@ -4,7 +4,7 @@
 規格全部來自已核准文件,本腳本不含任何可調整的東西:
     CP-004  目標(MDD ≤ 30%、保留報酬 ≥ 34.0%、第二層 Δ ≥ 0.78)
     CP-005  風控(曝險上限 0.8、回撤斜坡 30%→40%、再平衡帶 20%)
-    strategy-2-hypothesis.md  參數(W=20、σ_target=25%)
+    strategy-4-hypothesis.md  參數(W=20、σ_target=25%)
 
 用法:
     .venv/bin/python analysis/tools/run_strategy2_evaluation.py

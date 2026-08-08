@@ -1,8 +1,8 @@
-# 策略二正式結果:機制成立,但未達絕對目標
+# 策略四正式結果:機制成立,但未達絕對目標
 
 > 狀態:**⚠️ 部分通過 / MIXED(2026-08-08)。**
-> 規格:[`CP-004`](./proposals/CP-004-revised-targets.md)、[`CP-005`](./proposals/CP-005-risk-policy-for-always-in-market.md)、[`CP-006` 決策](./strategy-2-run-1-invalid.md)、[`strategy-2-hypothesis.md`](./strategy-2-hypothesis.md)
-> 前次執行:[`strategy-2-run-1-invalid.md`](./strategy-2-run-1-invalid.md)(無效,兩個實作錯誤)
+> 規格:[`CP-004`](./change-proposals/CP-004-revised-targets.md)、[`CP-005`](./change-proposals/CP-005-risk-policy-for-always-in-market.md)、[`CP-006` 決策](./strategy-4-run-1-invalid.md)、[`strategy-4-hypothesis.md`](./strategy-4-hypothesis.md)
+> 前次執行:[`strategy-4-run-1-invalid.md`](./strategy-4-run-1-invalid.md)(無效,兩個實作錯誤)
 
 ---
 
@@ -38,7 +38,7 @@
 
 ## 2. 假說的可證偽預測成立了
 
-[`strategy-2-hypothesis.md`](./strategy-2-hypothesis.md) 第 3 節寫的預測:
+[`strategy-4-hypothesis.md`](./strategy-4-hypothesis.md) 第 3 節寫的預測:
 
 > **在相同的平均曝險下,實現的 MDD 將低於零技巧基準,且/或保留報酬高於零技巧基準。**
 
@@ -56,7 +56,7 @@
 
 **毛報酬 6.19% 其實高於對照組的 5.97%**,但總換手 19.09 × 0.15% = 2.86% 累計成本(約 0.32%/年)把它壓到 5.84%。
 
-⚠️ 這正是 [`strategy-2-hypothesis.md`](./strategy-2-hypothesis.md) 第 8 節列為「第四個可能的失敗方式」的東西 —— **它真的發生了,而且剛好抵銷掉全部的報酬優勢。** 換手成本沒有摧毀策略,但吃掉了它在報酬面的全部好處。
+⚠️ 這正是 [`strategy-4-hypothesis.md`](./strategy-4-hypothesis.md) 第 8 節列為「第四個可能的失敗方式」的東西 —— **它真的發生了,而且剛好抵銷掉全部的報酬優勢。** 換手成本沒有摧毀策略,但吃掉了它在報酬面的全部好處。
 
 ---
 
@@ -77,7 +77,7 @@ E[σ_target / σ_t]  ≠  σ_target / E[σ_t]
 
 **曝險與波動成反比,而 1/x 是凸函數 —— 所以平均曝險系統性高於用平均波動推算的值。**
 
-這是我方在 [`strategy-2-hypothesis.md`](./strategy-2-hypothesis.md) 2.2 節推導 `σ_target` 時的**第三個**疏漏(前兩個記錄在 [`run-1-invalid`](./strategy-2-run-1-invalid.md))。
+這是我方在 [`strategy-4-hypothesis.md`](./strategy-4-hypothesis.md) 2.2 節推導 `σ_target` 時的**第三個**疏漏(前兩個記錄在 [`run-1-invalid`](./strategy-4-run-1-invalid.md))。
 
 ### 3.2 ⛔ 而顯而易見的「修法」正是不能做的
 
@@ -86,7 +86,7 @@ E[σ_target / σ_t]  ≠  σ_target / E[σ_t]
 **這是看到結果之後調參數,絕對不能做。**
 
 - 它會讓 `N` 再增加
-- 更根本的是:**這正是策略一之後被禁止的同一個動作**([`CP-003`](./proposals/CP-003-fixed-parameters.md) §4.0.4、[`pass-b-results.md`](./pass-b-results.md) 第 5 節)。策略換了,紀律不變。
+- 更根本的是:**這正是策略一之後被禁止的同一個動作**([`CP-003`](./change-proposals/CP-003-fixed-parameters.md) §4.0.4、[`pass-b-results.md`](./pass-b-results.md) 第 5 節)。策略換了,紀律不變。
 
 **依已核准的規格,第一層 (a) 未通過。這是本次執行的正式判定。**
 
@@ -104,7 +104,7 @@ E[σ_target / σ_t]  ≠  σ_target / E[σ_t]
 
 **`Δ` 是正的,但只有門檻的 6%,且完全不顯著。**
 
-[`strategy-2-hypothesis.md`](./strategy-2-hypothesis.md) 第 5 節的預先聲明:
+[`strategy-4-hypothesis.md`](./strategy-4-hypothesis.md) 第 5 節的預先聲明:
 
 > 文獻上波動度管理對 Sharpe 的改善通常在 0.1–0.3 量級 —— 若真是這個量級,第二層在 9 年資料上證明不了。
 
@@ -114,7 +114,7 @@ E[σ_target / σ_t]  ≠  σ_target / E[σ_t]
 
 第一次執行 `ρ = 0.50`(策略 75% 時間空手);修好吸收態後 `ρ = 0.9069`,遠高於 0.7 的要求。
 
-**[`CP-004`](./proposals/CP-004-revised-targets.md) 3.3 節「策略必須是疊加型而非擇時型」的設計約束,在這裡被實測驗證是對的** —— 它也是第一次執行之所以連檢定都做不了的原因。
+**[`CP-004`](./change-proposals/CP-004-revised-targets.md) 3.3 節「策略必須是疊加型而非擇時型」的設計約束,在這裡被實測驗證是對的** —— 它也是第一次執行之所以連檢定都做不了的原因。
 
 ---
 
@@ -127,7 +127,7 @@ E[σ_target / σ_t]  ≠  σ_target / E[σ_t]
 1. ✅ **經濟假說被支持。** 「風險可預測而方向不可預測」→ 同曝險下 MDD 降低 19.7%,這是事前登錄的預測,被資料支持。
 2. ✅ **機制有效。** 報酬/回撤比從 0.153 提升到 0.186。
 3. ❌ **但校準錯了。** `σ_target` 的推導漏了凸性,實際曝險高了 39%,絕對目標因此未達。
-4. ❌ **沒有 edge 可主張。** `Δ = +0.032`,`p = 0.84`。策略的價值在**風險控制**,不在超額報酬 —— 而這正是 [`CP-004`](./proposals/CP-004-revised-targets.md) 第一層與第二層分開的理由。
+4. ❌ **沒有 edge 可主張。** `Δ = +0.032`,`p = 0.84`。策略的價值在**風險控制**,不在超額報酬 —— 而這正是 [`CP-004`](./change-proposals/CP-004-revised-targets.md) 第一層與第二層分開的理由。
 
 ---
 
@@ -149,7 +149,7 @@ E[σ_target / σ_t]  ≠  σ_target / E[σ_t]
 
 ## 7. 誠實揭露
 
-- **本次是第二次執行。** 第一次因兩個實作錯誤作廢([`run-1-invalid`](./strategy-2-run-1-invalid.md)),`N` 已因此提高到 13。
+- **本次是第二次執行。** 第一次因兩個實作錯誤作廢([`run-1-invalid`](./strategy-4-run-1-invalid.md)),`N` 已因此提高到 13。
 - **第 2.1 節的零成本數字是診斷用的分解**,不是判定的一部分。判定一律以含成本的數字為準。
 - **對照組不計換手成本**(固定曝險在實務上仍需再平衡),此設定使比較**偏向對照組**,不偏袒策略。
 - **滾動視窗回撤有一個已知代價:長期緩跌時參考高點會跟著下滑,斜坡不會持續生效**(`test_rolling_window_underreports_sustained_decline` 已固定此性質)。本次 MDD 31.37% 是否受此影響未單獨分析。
