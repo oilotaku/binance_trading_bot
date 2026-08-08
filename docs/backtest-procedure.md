@@ -35,7 +35,7 @@
 | Walk-forward 切分 | IS/OOS/步進 | **24 個月(滾動)/ 6 個月 / 6 個月**(承 [`statistical-methodology.md`](./statistical-methodology.md) 3.2 節,不重新定案) |
 | Embargo(初始值,待校準) | embargo_days | **30 天(下限,Pass A 用此值,Pass B 依實測持倉分布校準,見 4.1 節)** |
 | 目前可用完整 fold 數(以今日 2026-08-07 為基準) | fold 數 | **9 個**(落在 [`statistical-methodology.md`](./statistical-methodology.md) 目標 8–10 個區間內,見 1.3 節) |
-| Hyperopt 每 fold trial 數 | epochs | **1,000**(見 4.3 節理由) |
+| Hyperopt 每 fold trial 數 | epochs | **200**(Pass A/B 皆同,見 4.3 節理由;原為 1,000,依 [`CP-001`](./change-proposals/CP-001-hyperopt-epochs.md) 於 2026-08-08 核准調整) |
 | Hyperopt 搜尋空間 | `--spaces` | `buy sell`(不含 `roi`/`trailing`/`protection`,理由見 4.3 節) |
 | 手續費假設 | fee | **0.10% / 0.10%**(taker/maker,Binance 現貨 VIP0、未計 BNB 折扣,見 2.1 節,**待實作時核實實際帳戶費率**) |
 | 滑價假設(post-processing haircut) | slippage | **每邊 0.05%(5 bps)、來回合計 0.10%**(見 2.2 節,**待 paper trading 驗證**,見第 7 節) |
@@ -189,9 +189,11 @@ Binance 現貨標準費率(VIP 0 級距,未套用 BNB 折抵)為 **maker 0.10% /
 
 [`statistical-methodology.md`](./statistical-methodology.md) 3.3 節的 embargo 公式本身有一個雞生蛋問題:`embargo_days = max(N, M, ATR 週期) + 持倉天數的 95th 百分位`,但「持倉天數的 95th 百分位」是**回測跑出真實交易後才知道的輸出**,不是可以事先代入的輸入。該節已預見這個問題並給出處理原則:「`embargo_days` 建議下限抓 30 天,實際數字待 Phase 6 用真實回測的持倉時間分布重新校準,但不得低於 30 天」。本文件把這個原則具體化為兩輪執行:
 
-- **Pass A(校準輪):** 用 `embargo_days = 30`(下限值)完整跑一次第 4.3 節的 9-fold 流程(可以用較少 hyperopt epochs,例如 200,加速這一輪,因為 Pass A 的參數本身不是最終要用的結果,只是為了取得持倉天數分布)。
+- **Pass A(校準輪):** 用 `embargo_days = 30`(下限值)完整跑一次第 4.3 節的 9-fold 流程。Pass A 的參數本身不是最終要用的結果,只是為了取得持倉天數分布。
 - **校準:** 取 Pass A 所有 fold OOS 交易的**持倉天數分布**,計算其 95th 百分位,重新代入 `embargo_days = max(N, M, ATR 週期) + 該 95th 百分位`(`N`、`M`、ATR 週期取各 fold hyperopt 選出值的中位數或聯集上界,若各 fold 差異大則額外檢查第 4.4 節的參數穩定性)。若重新算出的 `embargo_days` 仍是 30 天量級,Pass A 的 fold 表(1.3 節)不需要調整,直接進入 Pass B;若明顯大於 30 天(例如超過 45 天,已經逼近 [`risk-policy.md`](./risk-policy.md) 2.3 節的 time-stop 本身),需要重新產生 1.3 節的 fold 日期表(embargo 變長會壓縮可用 OOS 天數,fold 數可能因此略降,若降到 5 個以下,依 [`statistical-methodology.md`](./statistical-methodology.md) 3.5 節視為方法論本身無效,需要往前檢討是否要延伸資料起點或放寬 embargo 精神性下限)。
-- **Pass B(正式輪):** 用校準後的 `embargo_days` 與完整 1,000 epochs 重跑第 4.3 節全部流程,**這一輪的結果才是餵進第 5 節通過/不通過判定的正式數字**,Pass A 的結果不得混入最終報告的統計量計算,只作為校準過程留痕。
+- **Pass B(正式輪):** 用校準後的 `embargo_days` 重跑第 4.3 節全部流程,**這一輪的結果才是餵進第 5 節通過/不通過判定的正式數字**,Pass A 的結果不得混入最終報告的統計量計算,只作為校準過程留痕。
+
+> **兩輪的唯一差異是 `embargo_days`,epochs 皆為 200**(依 [`CP-001`](./change-proposals/CP-001-hyperopt-epochs.md))。原設計中 Pass A 用縮減 epochs 加速的理由,在 Pass B 也降為 200 之後已不再適用。
 
 ### 4.2 前置檢查(Step -1,任何 fold 開始前必須先做一次)
 
@@ -207,8 +209,8 @@ freqtrade lookahead-analysis --strategy RegimeFilteredMomentumBreakout --timeran
 
 | 步驟 | 動作 | 具體做法 | 輸出 |
 |---|---|---|---|
-| 1 | IS 資料上跑 hyperopt | `freqtrade hyperopt --strategy RegimeFilteredMomentumBreakout --timerange <該 fold IS 起訖> --hyperopt-loss PurgedTradeSharpeLoss --spaces buy sell -e 1000 --random-state <固定值,確保可重現>`。`--spaces` 只含 `buy`(N、X、M、ATR 週期)與 `sell`(k),**不含 `roi`/`trailing`/`protection`**——`minimal_roi` 已依 [`risk-policy.md`](./risk-policy.md) 2.2 節寫死為停用值、Protections 參數依 3.2 節絕不可調,讓 hyperopt 去搜尋這些空間會直接違反已定案的治理決策。loss function 用第 8 節 `analysis/` 提供的自訂 `PurgedTradeSharpeLoss`(見下方說明),不用 Freqtrade 內建的 `SharpeHyperOptLoss`/`SharpeHyperOptLossDaily`,理由見下 | `user_data/hyperopt_results/` 下該 fold 的完整 epoch 紀錄(1,000 筆,含每組參數與對應 loss/Sharpe) |
-| 2 | 匯出 hyperopt 完整 epoch 紀錄 | `freqtrade hyperopt-list`/`hyperopt-show --print-json` 匯出**全部** 1,000 個 epoch(不是只匯出最佳那組)——`σ_SR` 需要全部 trial 的 Sharpe 分布才能算,只留最佳結果會讓 DSR 公式沒有輸入資料 | 該 fold 完整 epoch 的 `(params, SR_trade)` 表 |
+| 1 | IS 資料上跑 hyperopt | `freqtrade hyperopt --strategy RegimeFilteredMomentumBreakout --timerange <該 fold IS 起訖> --hyperopt-loss PurgedTradeSharpeLoss --spaces buy sell -e 200 --random-state <固定值,確保可重現>`。`--spaces` 只含 `buy`(N、X、M、ATR 週期)與 `sell`(k),**不含 `roi`/`trailing`/`protection`**——`minimal_roi` 已依 [`risk-policy.md`](./risk-policy.md) 2.2 節寫死為停用值、Protections 參數依 3.2 節絕不可調,讓 hyperopt 去搜尋這些空間會直接違反已定案的治理決策。loss function 用第 8 節 `analysis/` 提供的自訂 `PurgedTradeSharpeLoss`(見下方說明),不用 Freqtrade 內建的 `SharpeHyperOptLoss`/`SharpeHyperOptLossDaily`,理由見下 | `user_data/hyperopt_results/` 下該 fold 的完整 epoch 紀錄(200 筆,含每組參數與對應 loss/Sharpe) |
+| 2 | 匯出 hyperopt 完整 epoch 紀錄 | `freqtrade hyperopt-list`/`hyperopt-show --print-json` 匯出**全部** 200 個 epoch(不是只匯出最佳那組)——`σ_SR` 需要全部 trial 的 Sharpe 分布才能算,只留最佳結果會讓 DSR 公式沒有輸入資料 | 該 fold 完整 epoch 的 `(params, SR_trade)` 表 |
 | 3 | `analysis/sample_size.py` 計算 `n_eff` | 對該 fold **hyperopt 選出的最佳參數組、purge 後(已在 loss function 內排除)的 IS 交易報酬序列**做 Newey-West 校正,依 [`statistical-methodology.md`](./statistical-methodology.md) 4.2 節公式算出 `n_eff`、`IF`;並行跑 block bootstrap(4.3 節,`arch.bootstrap.StationaryBootstrap`,`B=10,000`)交叉驗證 | 該 fold 的 `(n_eff, IF, bootstrap 95% CI)` |
 | 4 | `analysis/significance.py` 計算該 fold DSR | 用步驟 2 全部 epoch 的 `SR_trade` 樣本標準差當 `σ_SR`,依 [`statistical-methodology.md`](./statistical-methodology.md) 2.2 節公式先算 `N`(或依 2.3 節對高相關 trial 分群後的有效 `N'`,見下方說明)、再算 `SR0`,最後代入 PSR 公式得該 fold 的 DSR。**每個 fold 都算一次 DSR 並全部保留**,不是只算最後一個 fold——理由見 4.4 節 | 9 個 fold 各自的 DSR 值 |
 | 5 | OOS 回測(套用該 fold hyperopt 選出的凍結參數) | `freqtrade backtesting --strategy RegimeFilteredMomentumBreakout --timerange <該 fold OOS 起訖>`,策略讀取步驟 1 選出的最佳參數(依 Freqtrade 慣例讀取隨策略存放的 `<StrategyName>.json` 參數覆寫檔,精確檔名/載入旗標依當時版本核實)。**這個步驟的參數是凍結的,不得在 OOS 視窗內重新 hyperopt**,否則就不是樣本外驗證 | 該 fold OOS 交易明細(JSON) |
@@ -220,7 +222,7 @@ freqtrade lookahead-analysis --strategy RegimeFilteredMomentumBreakout --timeran
 1. **Purge 的實作接線點就在這裡。** [`statistical-methodology.md`](./statistical-methodology.md) 3.3 節的 purge 規則(「任何在 IS 視窗最後 `embargo_days` 天內進場的交易,一律從 IS 的 hyperopt 目標函數計算中剔除」)必須在 hyperopt 每次評估一組參數、計算 loss 之前生效,而不是在 hyperopt 跑完之後才補救——用一個自訂 `IHyperOptLoss` 子類別,在計算 Sharpe 之前先過濾掉 `open_date` 落在 `(IS_end - embargo_days, IS_end]` 區間內的交易,是唯一能讓 purge 規則真正影響 hyperopt 選擇結果的做法。這正好對應 [`architecture-spec.md`](./architecture-spec.md) 2.2 節保留、但刻意不先填內容的 `user_data/hyperopts/` 目錄——本文件在此明確填入這個需求。
 2. **明確對齊 `SR_trade` 定義,不依賴內建 loss function 的確切計算基礎。** Freqtrade 內建同時提供 `SharpeHyperOptLoss` 與 `SharpeHyperOptLossDaily` 兩種版本,暗示兩者計算基礎不同(逐筆交易 vs. 先重採樣成日報酬)。[`statistical-methodology.md`](./statistical-methodology.md) 第 1 節明確要求 DSR/PSR 用的 `SR_trade` 是「逐筆交易報酬計算,未按日曆年化」的版本——與其信任某個版本的內建 loss function 名稱暗示的行為(可能隨版本演進而變),不如在自訂 loss function 裡明確寫死計算基礎為逐筆交易報酬,消除這個依賴 Freqtrade 版本細節的不確定性。**若 Phase 10 實作時發現當時版本的 `SharpeHyperOptLoss` 確實就是逐筆交易基礎、行為與自訂版本一致,可以考慮改用內建版本簡化維護,但仍需保留 purge 過濾邏輯,不能因此放棄第 1 點的需求。**
 
-**關於 hyperopt trial 相關性分群(對應 [`statistical-methodology.md`](./statistical-methodology.md) 2.3 節):** 理想做法是對每個 epoch 的**每日報酬序列**兩兩計算相關係數,>0.9 視為同群。若當時 Freqtrade 版本的 hyperopt 輸出不含足夠細節重建每個 epoch 的完整日報酬序列(僅有摘要統計量),退而求其次的做法是:只對 hyperopt 選出的**前 20–50 名候選**(而非全部 1,000 個 epoch)重新個別執行一次完整 backtest 取得其日報酬序列,做相關性分群後得到有效群數 `N'`,並在報告中明確標註使用的是這個近似做法而非對全部 1,000 個 epoch 分群——**誠實標註方法上的近似,好過假裝做了完整分群**。全部 1,000 個 epoch 各自的原始 loss 值(而非日報酬序列)無論如何都會被完整保留,`σ_SR` 的計算不受此近似影響。
+**關於 hyperopt trial 相關性分群(對應 [`statistical-methodology.md`](./statistical-methodology.md) 2.3 節):** 理想做法是對每個 epoch 的**每日報酬序列**兩兩計算相關係數,>0.9 視為同群。若當時 Freqtrade 版本的 hyperopt 輸出不含足夠細節重建每個 epoch 的完整日報酬序列(僅有摘要統計量),退而求其次的做法是:只對 hyperopt 選出的**前 20–50 名候選**(而非全部 200 個 epoch)重新個別執行一次完整 backtest 取得其日報酬序列,做相關性分群後得到有效群數 `N'`,並在報告中明確標註使用的是這個近似做法而非對全部 200 個 epoch 分群——**誠實標註方法上的近似,好過假裝做了完整分群**。全部 200 個 epoch 各自的原始 loss 值(而非日報酬序列)無論如何都會被完整保留,`σ_SR` 的計算不受此近似影響。
 
 ### 4.4 全部 9 個 fold 完成後:串接與最終檢定
 
@@ -383,8 +385,8 @@ Dry-run 觀察期滿足 7.2 節門檻、7.3 節比對無重大落差(或已修�
 ## 9. 已知限制與交棒事項 / Known Limitations & Handoff
 
 - **本文件的日期表(1.3 節)會隨時間過期。** 每次重跑第 4 節流程前,必須重新產生 fold 邊界表(依 1.2 節固定的 anchor 2020-01-01、24mo/6mo/6mo 規則,往前推算到當下可用的最新完整 OOS 視窗),不能沿用本文件寫作當下(2026-08-07)算出的固定表格,那只是首次執行時的具體示範。
-- **Embargo 校準(4.1 節)的兩輪設計,是本文件對 [`statistical-methodology.md`](./statistical-methodology.md) 既有雞生蛋問題給出的具體解法**,但 Pass A 用 200 epochs 這個縮減值只是加速校準輪的建議,不是嚴謹推導出的數字,若 Phase 10 實作時發現 200 epochs 選出的持倉時間分布與完整 1,000 epochs 跑出的分布有系統性差異,應該提高 Pass A 的 epochs 數,不要為了省時間犧牲校準品質。
-- **hyperopt trial 相關性分群(4.3 節)在 Freqtrade 版本不支援重建每個 epoch 完整日報酬序列時的近似做法**(只對前 20–50 名候選重新 backtest),是本文件在方法論與工程可行性之間的具體取捨,[`statistical-methodology.md`](./statistical-methodology.md) 8 節已預告這是「最需要 Phase 6 落地時特別小心處理的一步」——若 Phase 10 實作時發現 Freqtrade 版本其實可以完整取得全部 1,000 個 epoch 的日報酬序列,應該優先採用完整分群,不要預設一定要走近似路徑。
+- **Embargo 校準(4.1 節)的兩輪設計,是本文件對 [`statistical-methodology.md`](./statistical-methodology.md) 既有雞生蛋問題給出的具體解法。** 依 [`CP-001`](./change-proposals/CP-001-hyperopt-epochs.md),Pass A 與 Pass B 現在同為 200 epochs,兩輪唯一差異是 `embargo_days` —— 原本「Pass A 用縮減 epochs 加速」的設計理由已不再適用。**200 這個數字的取捨依據見 CP-001 第 2 節**(降低過擬合曝險 vs. TPE 仍需足夠試驗數才能收斂)。若 Phase 10 實測發現 200 次不足以讓 hyperopt 收斂到穩定的參數區域(具體症狀:各 fold 選出的參數變異係數 CV 明顯超過 4.5 節的 0.5 門檻),應依 CP-001 的相同流程重新評估並留下書面理由,不得直接調高了事。
+- **hyperopt trial 相關性分群(4.3 節)在 Freqtrade 版本不支援重建每個 epoch 完整日報酬序列時的近似做法**(只對前 20–50 名候選重新 backtest),是本文件在方法論與工程可行性之間的具體取捨,[`statistical-methodology.md`](./statistical-methodology.md) 8 節已預告這是「最需要 Phase 6 落地時特別小心處理的一步」——若 Phase 10 實作時發現 Freqtrade 版本其實可以完整取得全部 200 個 epoch 的日報酬序列,應該優先採用完整分群,不要預設一定要走近似路徑。
 - **本文件第 2.2 節的 5 bps 滑價假設,其存在理由是「有一個保守但誠實標註為假設的數字」,不是精確估計**——第 7 節已經設計了用 dry-run 實測校正的機制,但在那之前(即整個第 4、5、6 節的回測/walk-forward 階段),所有績效指標都是在這個假設之下算出的,報告時必須明確標註這一點,不能讓讀者誤以為第 5 節通過的數字已經是「真實成本下」的最終結果——**真正的驗證要等第 7 節 dry-run 階段才完成**。
 - **`analysis/hyperopt_loss.py` 的自訂 loss function 設計(4.3 節)预设了 Freqtrade 的 `IHyperOptLoss` 介面允許存取足夠的 trade-level 資訊做 purge 過濾**——這個介面的確切簽章(能拿到哪些欄位、`min_date`/`max_date` 参数語意)依 [`architecture-spec.md`](./architecture-spec.md) 0.2 節既有原則,屬於「確定存在、但精確語法可能隨版本變動」的細節,留給 Phase 10 依當時版本文件核實,不影響本文件的設計邏輯本身。
 - **第 6 節三項檢查清單的判準數字(15–20% 出場佔比、30% fold 貼邊界、3–5 筆 vs. 11–15 筆連續虧損)是本文件為了讓「不 match 長什麼樣子」具體可執行而給出的操作性定義**,不是 [`risk-policy.md`](./risk-policy.md) 或 [`statistical-methodology.md`](./statistical-methodology.md) 已經明文規定的門檻——若專案負責人審閱後認為這些具體數字需要調整,屬於本文件內部的操作細節修訂,不需要動用 [`risk-policy.md`](./risk-policy.md) 第 7 節「核心治理數字」等級的正式變更流程,但建議修訂時仍留下理由紀錄。

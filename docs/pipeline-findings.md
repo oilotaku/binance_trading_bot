@@ -6,7 +6,7 @@
 
 ## 為什麼需要這份文件
 
-`docs/backtest-procedure.md` 第 4 節的完整驗證流程是 9 個 fold × (hyperopt 1,000 epochs + OOS backtest),在真實環境要跑數小時。本次用**合成資料**把整條管線端到端跑過一次,目的不是驗證策略有沒有 edge(合成資料的績效數字毫無意義),而是**在花費真實運算資源之前,先找出管線本身的整合錯誤**。
+`docs/backtest-procedure.md` 第 4 節的完整驗證流程是 9 個 fold × (hyperopt 200 epochs + OOS backtest),在真實環境要跑數小時。本次用**合成資料**把整條管線端到端跑過一次,目的不是驗證策略有沒有 edge(合成資料的績效數字毫無意義),而是**在花費真實運算資源之前,先找出管線本身的整合錯誤**。
 
 結果找到 4 個問題,其中 **2 個是會靜默產生錯誤結果、不會報錯的真實缺陷**。若沒有這次測試,它們會在真實資料上悄悄汙染最終結論。
 
@@ -100,7 +100,7 @@ hyperopt 與 OOS backtest **必須成對、緊鄰執行**,中間不得插入其�
 | purge 邊界正確傳入 loss function | 逐 fold 設定 `ANALYSIS_EMBARGO_DAYS` / `ANALYSIS_IS_END` 環境變數 | `test_hyperopt_receives_purge_env_vars` |
 | fold 數不足即中止 | 少於 5 個 fold 直接拒絕執行(statistical-methodology.md 3.5 節) | 實測驗證(2 個 fold 時正確中止) |
 
-另支援中斷續跑(`--resume`):9 fold × 1,000 epochs 可能數小時,每個 fold 完成即寫入 `state.json`。
+另支援中斷續跑(`--resume`):9 fold × 200 epochs 仍可能數小時,每個 fold 完成即寫入 `state.json`。
 
 **⚠️ 執行器的 CLI 編排部分無法在本環境實測** —— 它以 subprocess 呼叫真實 `freqtrade` CLI,而每次呼叫都需要向交易所載入 market metadata,在本環境必然失敗。上表的約束是用 mock 掉 `_run()` 的方式驗證(這正好也是最容易在重構時被無意破壞的部分);**實際的端到端執行需要在能連上 Binance 的環境進行**。
 

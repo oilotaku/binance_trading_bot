@@ -78,7 +78,7 @@ Phase 1-7 的 7 份文件原本狀態欄位皆為「🟡 草稿完成,待專案�
 - 45 天 time-stop、ATR 倍數邊界 [2.0, 4.0] 是否與真實持倉時間分布相符(`risk-policy.md` 8,`backtest-procedure.md` 第 6 節已設計具體檢查清單)
 - `risk_fraction` 1.5%/2.5% 的確定性推導,是否與 Monte Carlo 模擬結果一致(`risk-policy.md` 8)
 - `backtest-procedure.md` 2.2 節 5 bps 滑價假設,需 dry-run 實測校正(該文件第 7 節已設計校正機制)
-- Embargo 校準 Pass A 用 200 epochs 是否足夠代表完整 1,000 epochs 的持倉時間分布(`backtest-procedure.md` 9)
+- ~~Embargo 校準 Pass A 用 200 epochs 是否足夠代表完整 1,000 epochs 的持倉時間分布~~ **已於 CP-001 消解:Pass A/B 現在同為 200 epochs,兩輪唯一差異是 embargo 值,不再有「縮減值是否具代表性」的問題**
 
 ### 4.3 純文件精確度問題(低優先,不阻擋開發,可在實作過程中順手修正)
 

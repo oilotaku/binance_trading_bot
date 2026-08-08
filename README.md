@@ -95,8 +95,8 @@ freqtrade lookahead-analysis \
 # 3. Pass A:embargo 校準輪
 python analysis/tools/run_walk_forward.py --pass a --epochs 200
 
-# 4. Pass B:正式輪(用 Pass A 印出的校準值)
-python analysis/tools/run_walk_forward.py --pass b --epochs 1000 --embargo-days <校準值>
+# 4. Pass B:正式輪(用 Pass A 印出的校準值;epochs 同為 200,見 CP-001)
+python analysis/tools/run_walk_forward.py --pass b --epochs 200 --embargo-days <校準值>
 ```
 
 Pass B 完成後會直接印出通過/不通過總表,完整報告寫入 `analysis/artifacts/pass_b/final_report.json`。

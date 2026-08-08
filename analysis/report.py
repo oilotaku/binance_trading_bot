@@ -11,7 +11,7 @@ docs/backtest-procedure.md 第 8 節 report.py:端到端編排,產出第 5 節�
   2. `build_final_report` — 全部 9 個 fold 完成後,依 4.4 節規則彙整成第 5 節總表。
 
 這是規格的具體實作,不是可以直接無腦執行的一鍵腳本 —— backtest-procedure.md 4.3 節
-本身就要求每個 fold 分別跑 hyperopt(1,000 epochs)與 OOS backtest,這些步驟的執行時間
+本身就要求每個 fold 分別跑 hyperopt(200 epochs,見 docs/change-proposals/CP-001)與 OOS backtest,這些步驟的執行時間
 與資料依賴性質,決定了本檔案必須是「串接已完成步驟的產出」而非「從頭跑到尾的黑盒子」。
 """
 

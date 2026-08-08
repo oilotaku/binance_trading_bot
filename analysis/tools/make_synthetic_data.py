@@ -2,7 +2,7 @@
 ⚠️ 合成資料產生器 —— 僅供「管線整合測試」使用,絕不可用於任何策略績效判斷。
 
 存在理由:docs/backtest-procedure.md 第 4 節的完整驗證流程是 9 個 fold ×
-(hyperopt 1,000 epochs + OOS backtest),在真實環境要跑數小時。若管線本身有整合錯誤
+(hyperopt 200 epochs + OOS backtest),在真實環境要跑數小時。若管線本身有整合錯誤
 (欄位名稱對不上、自訂 loss function 在真實 hyperopt 迴圈裡拋例外、report.py 吃不下
 Freqtrade 實際匯出格式),用真實資料跑到一半才發現是很昂貴的失敗。
 

@@ -241,4 +241,4 @@ This plan takes the feature requirements each of the 8 roles raised in [`stable-
 - [ ] **完整 9-fold walk-forward 執行 —— 這是目前唯一的阻塞項**,需要真實歷史資料,在能連上 Binance 的環境執行:
       1. `freqtrade download-data ... --timerange 20190901-`
       2. `python analysis/tools/run_walk_forward.py --pass a --epochs 200`
-      3. `python analysis/tools/run_walk_forward.py --pass b --epochs 1000 --embargo-days <Pass A 校準值>`
+      3. `python analysis/tools/run_walk_forward.py --pass b --epochs 200 --embargo-days <Pass A 校準值>`

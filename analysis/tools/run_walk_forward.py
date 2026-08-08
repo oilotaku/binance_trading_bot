@@ -18,17 +18,17 @@ docs/backtest-procedure.md 第 4 節完整驗證流程的執行器。
       舊結果的來源。
 
 支援中斷續跑:每個 fold 完成後寫入 state.json,重跑時自動跳過已完成的 fold
-(9 個 fold × 1,000 epochs 可能要跑數小時,不應該因為中途中斷就得從頭來過)。
+(9 個 fold × 200 epochs 仍可能要跑數小時,不應該因為中途中斷就得從頭來過)。
 
 用法:
-    # 步驟 1:Pass A 校準輪(較少 epochs,只為取得持倉天數分布)
+    # 步驟 1:Pass A 校準輪(只為取得持倉天數分布,epochs 與 Pass B 相同)
     .venv/bin/python analysis/tools/run_walk_forward.py --pass a --epochs 200
 
     # 步驟 2:依 Pass A 印出的建議值跑 Pass B 正式輪
-    .venv/bin/python analysis/tools/run_walk_forward.py --pass b --epochs 1000 --embargo-days 34
+    .venv/bin/python analysis/tools/run_walk_forward.py --pass b --epochs 200 --embargo-days 34
 
     # 中斷後續跑(自動跳過已完成的 fold)
-    .venv/bin/python analysis/tools/run_walk_forward.py --pass b --epochs 1000 --embargo-days 34 --resume
+    .venv/bin/python analysis/tools/run_walk_forward.py --pass b --epochs 200 --embargo-days 34 --resume
 """
 
 from __future__ import annotations
@@ -296,7 +296,7 @@ def main() -> int:
         embargo = calibrate_embargo(summaries)
         print(f"\n下一步:")
         print(f"  .venv/bin/python analysis/tools/run_walk_forward.py \\")
-        print(f"      --pass b --epochs 1000 --embargo-days {embargo}")
+        print(f"      --pass b --epochs 200 --embargo-days {embargo}")
     else:
         print("Pass B 完成 —— 產生最終報告 ...")
         report_path = pass_dir / "final_report.json"
