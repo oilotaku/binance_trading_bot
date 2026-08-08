@@ -53,12 +53,32 @@ def _detect_epoch_unit(values: pd.Series) -> str:
     形同虛設。這正是本專案已經踩過一次的那類錯誤:錯得很安靜、後果很嚴重。
 
     判斷方式:以 2001-09-09(1e9 秒)為錨,看數量級落在哪一檔。
+
+    ⚠️ **混用單位一律拒收,不取多數決。** 這不是假想情況:幣安在 2025-01-01 把
+    data.binance.vision 月封存的時間戳從毫秒改成微秒,所以一份跨越該日期的資料集
+    會同時含有兩種單位。若用中位數之類的方式推斷「整份資料的單位」,少數派那一段
+    會被錯誤解讀(毫秒被當微秒 → 1970 年;微秒被當毫秒 → 西元五萬年),而且**不會
+    報錯**。這裡直接讓它失敗,由呼叫端先把單位統一(下載工具會逐列正規化)。
     """
-    v = float(pd.Series(values).abs().median())
-    for unit, upper in (("s", 1e11), ("ms", 1e14), ("us", 1e17)):
-        if v < upper:
-            return unit
-    return "ns"
+    v = pd.Series(values).abs().dropna()
+    if v.empty:
+        raise SystemExit("❌ date 欄位沒有可用的數值")
+
+    def classify(x: float) -> str:
+        for unit, upper in (("s", 1e11), ("ms", 1e14), ("us", 1e17)):
+            if x < upper:
+                return unit
+        return "ns"
+
+    units = {classify(float(x)) for x in (v.min(), v.max())}
+    if len(units) > 1:
+        raise SystemExit(
+            f"❌ date 欄位混用了多種時間戳單位:{sorted(units)}\n"
+            f"   最小值 {int(v.min())}、最大值 {int(v.max())}。\n"
+            "   幣安於 2025-01-01 將封存時間戳由毫秒改為微秒,跨越該日期的資料集會混用兩種單位。\n"
+            "   請先統一單位再匯入 —— 本工具不會替您猜,猜錯不會報錯但會毀掉整份資料。"
+        )
+    return units.pop()
 
 
 def load_input(path: Path) -> pd.DataFrame:

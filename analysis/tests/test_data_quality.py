@@ -151,6 +151,19 @@ def test_expected_range_detects_truncation():
     assert len(missing) == 31 + (pd.Timestamp("2020-04-30") - pd.Timestamp("2020-04-09")).days
 
 
+@pytest.mark.parametrize("aware", [False, True])
+def test_expected_range_accepts_aware_and_naive_bounds(aware):
+    """
+    邊界時間 tz-aware / tz-naive 兩種都必須能吃 —— CLI 傳前者、測試傳後者,
+    兩種都是真實呼叫路徑。(回歸:先前只測 naive,真實下載時整條管線當掉。)
+    """
+    from datetime import timezone
+
+    df = make_clean(n=100, start="2020-01-01")
+    mk = (lambda s: pd.Timestamp(s, tz=timezone.utc)) if aware else pd.Timestamp
+    assert dq.detect_missing_candles(df, mk("2020-01-01"), mk("2020-04-09")) == []
+
+
 # ---- 規則 3:量價背離的價格尖刺 ----
 
 def test_spike_with_quiet_volume_is_flagged():
@@ -219,3 +232,21 @@ def test_ingest_detects_epoch_unit(unit, divisor):
     raw = pd.Series([ts.value // divisor] * 10)
     assert _detect_epoch_unit(raw) == unit
     assert pd.to_datetime(raw, unit=unit, utc=True).iloc[0].normalize() == ts
+
+
+def test_ingest_rejects_mixed_epoch_units():
+    """
+    回歸測試,鎖住一個實測到的真實情況:幣安於 2025-01-01 把 data.binance.vision
+    月封存的時間戳由毫秒改為微秒,跨越該日期的資料集混用兩種單位
+    (BTCUSDT 1d 全量:2,694 列毫秒 + 577 列微秒)。
+
+    取多數決會讓少數派那一段被錯誤解讀且**不報錯** —— 必須明確拒收。
+    """
+    from analysis.tools.ingest_market_data import _detect_epoch_unit
+
+    ms = pd.Timestamp("2024-12-31", tz="UTC").value // 10**6
+    us = pd.Timestamp("2025-01-01", tz="UTC").value // 10**3
+    mixed = pd.Series([ms] * 2694 + [us] * 577)
+
+    with pytest.raises(SystemExit, match="混用"):
+        _detect_epoch_unit(mixed)

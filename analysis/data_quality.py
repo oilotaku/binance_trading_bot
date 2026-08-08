@@ -174,6 +174,18 @@ def _check_structure(df: pd.DataFrame) -> list[str]:
     return errors
 
 
+def _as_utc(t: datetime | pd.Timestamp) -> pd.Timestamp:
+    """
+    把邊界時間統一成 UTC-aware 並正規化到日界。
+
+    tz-aware 與 tz-naive 兩種輸入都要能吃:`pd.Timestamp(x, tz="UTC")` 在 x 已帶時區時
+    會拋 ValueError,而呼叫端(CLI 傳 tz-aware、測試傳 tz-naive)兩種都真實存在。
+    """
+    ts = pd.Timestamp(t)
+    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    return ts.normalize()
+
+
 def detect_missing_candles(
     df: pd.DataFrame, start: datetime | None = None, end: datetime | None = None
 ) -> list[pd.Timestamp]:
@@ -187,8 +199,8 @@ def detect_missing_candles(
         return []
 
     dates = pd.to_datetime(df["date"]).dt.tz_convert("UTC").dt.normalize()
-    lo = pd.Timestamp(start, tz="UTC").normalize() if start is not None else dates.min()
-    hi = pd.Timestamp(end, tz="UTC").normalize() if end is not None else dates.max()
+    lo = _as_utc(start) if start is not None else dates.min()
+    hi = _as_utc(end) if end is not None else dates.max()
 
     expected = pd.date_range(lo, hi, freq="1D", tz="UTC")
     return sorted(set(expected) - set(dates))

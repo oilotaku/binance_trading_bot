@@ -1,176 +1,156 @@
-# 驗證資料:現況、需求規格與取得方式
+# 驗證資料:取得經過、遇到的問題與重現方式
 
-> 狀態:**🔴 阻塞中 / BLOCKED — 本環境無法取得任何市場資料。**
+> 狀態:**✅ 已取得 / RESOLVED(2026-08-08)。** BTC/USDT 與 ETH/USDT 各 3,271 根日 K(2017-08-17 ~ 2026-07-31),已通過 [`backtest-procedure.md`](./backtest-procedure.md) 1.4 節全部品質檢查。
 > 日期:2026-08-08
-> 目的:把「驗證需要什麼資料」講到可以直接照著準備的程度,並記錄阻塞的確切原因。
 
 ---
 
-## 1. 現況:一根 K 棒都沒有
+## 0. 結果
 
-`user_data/data/binance/` 是空的。截至今日,**本專案從未取得任何真實市場資料**,所有跑過的東西(整合測試、`σ_SR` 實測值)都是合成資料。
-
-### 1.1 實測結果:全部來源被閘道拒絕
-
-2026-08-08 重新實測 10 個來源,全部失敗:
-
-| 來源 | 結果 |
+| | |
 |---|---|
-| `api.binance.com` / `data.binance.vision` / `api1.binance.com` | ❌ |
-| `api.kraken.com` / `api.exchange.coinbase.com` | ❌ |
-| `api.coingecko.com` / `min-api.cryptocompare.com` | ❌ |
-| `query1.finance.yahoo.com`(Yahoo Finance) | ❌ |
-| `api.bitfinex.com` / `api.gemini.com` / `www.bitstamp.net` | ❌ |
+| 交易對 | BTC/USDT、ETH/USDT(幣安現貨,1d) |
+| 範圍 | **2017-08-17 ~ 2026-07-31**(約 **9.0 年**) |
+| 筆數 | 各 **3,271** 根 |
+| 缺漏 | **0**(孤立 0、連續 0) |
+| 疑似異常 K 棒 | **0** |
+| 完整性 | 108 個月封存逐檔 SHA256 對照官方 `.CHECKSUM`,全數通過 |
 
-代理狀態端點的診斷明確指出原因:
+**合理性抽查** —— 校驗和只能證明「和幣安發布的一致」,不能證明「內容是真實市場」。對照已知歷史事件:
+
+| 日期 | 事件 | BTC 實際值 |
+|---|---|---|
+| 2017-12-17 | 2017 泡沫頂 | high 19,798.7 |
+| 2020-03-12 | 312 崩盤 | low 4,410.0 |
+| 2021-11-10 | 2021 ATH | high **69,000.0** |
+| 2022-11-09 | FTX 崩潰 | low 15,588.0 |
+
+四個地標全部吻合。
+
+**9.0 年比 [`feasibility-paths.md`](./feasibility-paths.md) 方案 F 假設的 8.7 年還多**,可行性結論不受影響(門檻只會略低於 1.20)。
+
+> ⚠️ **資料檔不進 git**(`user_data/data/` 已被 ignore),且**容器是暫時性的,session 結束就會消失**。`user_data/data/checksums/` 下的 216 筆校驗和已納入版控,任何時候都能依第 4 節重新取得**位元組完全相同**的資料。
+
+---
+
+## 1. 網路:白名單生效了,但幣安擋住了另一半
+
+白名單放行後實測:
+
+| 端點 | 結果 |
+|---|---|
+| `data.binance.vision` | ✅ **200** |
+| `api.binance.com` | ⚠️ **451** |
+
+**451 不是環境擋的。** 代理回應 `Connection Established` 後才收到 451,且代理的失敗紀錄沒有新增項目 —— 這個拒絕來自幣安自己的 CloudFront(POP `ORD56`,芝加哥):
+
+```json
+{"code": 0, "msg": "Service unavailable from a restricted location
+ according to 'b. Eligibility' in https://www.binance.com/en/terms."}
+```
+
+容器的出口 IP 位於幣安服務條款的限制地區。**這是幣安的地區限制,白名單改不動,也不該去繞。**
+
+### 1.1 因此 `freqtrade download-data` 用不了
+
+Freqtrade 2026.7 雖然也會用 `data.binance.vision`,但兩處都會撞上 451:
+
+1. `get_historic_ohlcv_fast()` 需要 `markets=self.markets`,而 `load_markets()` 走 `api.binance.com`
+2. 月封存只到前一日,最近幾根 K 棒會回退到 REST API
+
+所以改為直接抓月封存 ZIP,不使用 REST API —— **這不是規避:兩個網域都在白名單內,451 是幣安依其條款做的限制,本專案沒有、也不嘗試繞過它,只是不使用那個端點。**
+
+---
+
+## 2. 取得管線
+
+三個工具,職責分開:
 
 ```
-"kind": "connect_rejected",
-"detail": "gateway answered 403 to CONNECT (policy denial or upstream failure)"
+analysis/tools/download_binance_vision.py   取得 + 完整性(SHA256)
+                  ↓  6 欄 CSV
+analysis/tools/ingest_market_data.py        1.4 節品質閘門 + 來源留痕
+                  ↓  feather
+user_data/data/binance/                     Freqtrade 直接可讀
 ```
 
-**這不是憑證問題、也不是設定錯誤,是這個執行環境的網路政策。** 白名單只放行 GitHub、PyPI、npm 等套件來源。`freqtrade download-data` 在此環境無法使用。
-
-### 1.2 這不是可以繞過的東西
-
-環境的 README 明確要求不得繞過網路政策。GitHub 是通的,理論上可以把資料塞進 repo 再拉下來——**但那是把 GitHub 當成資料走私通道,規避使用者為這個環境選定的政策**,不會這樣做。
-
-同時這也違反本專案自己的規則:[`backtest-procedure.md`](./backtest-procedure.md) 1.4 節要求資料必須有可驗證的來源。**來路不明的資料跑出來的 DSR,數字再漂亮也不具意義。**
+下載工具**只負責取得與完整性,不做品質判斷**;缺漏與異常值一律交給 `analysis/data_quality.py`。這樣「資料哪來的」和「資料乾不乾淨」是兩個可以分別檢驗的問題。
 
 ---
 
-## 2. 需求規格
+## 3. 過程中抓到的兩個真實 bug
 
-以 [`feasibility-paths.md`](./feasibility-paths.md) 建議的**方案 F**(`N=5` + 資料延長到約 8.7 年)為準。
+兩個都是**不會報錯、但會讓統計結論失去意義**的類型 —— 與 [`pipeline-findings.md`](./pipeline-findings.md) 的 `MAX_LOSS` 哨兵值汙染同一種。
 
-| 項目 | 規格 |
-|---|---|
-| 交易對 | `BTC/USDT`、`ETH/USDT`(幣安**現貨**,承 [`scope.md`](./scope.md)) |
-| 週期 | `1d`(日 K) |
-| 起始 | 各交易對在幣安的**上市首日**(BTC/USDT 約 2017-11,ETH/USDT 約 2017-08)⚠️ 見 4.2 |
-| 結束 | `2026-07-31` |
-| 時區 | **UTC**,且時間戳需帶時區資訊 |
-| 筆數 | 每個交易對約 3,200 根,兩個共約 6,400 根 |
-| 檔案大小 | CSV 約 0.5 MB,壓縮後更小 |
+### 3.1 🔴 幣安在 2025-01-01 把封存時間戳從毫秒改成微秒
 
-**資料量非常小。** 阻塞的原因純粹是網路政策,不是規模或成本。
+BTCUSDT 1d 全量下載後:**2017-08~2024-12 共 2,694 列是毫秒(~1e12),2025-01 之後 577 列是微秒(~1e15)—— 同一份資料集混用兩種單位。**
 
-### 2.1 欄位
+原本的 `_detect_epoch_unit()` 用中位數推斷整份資料的單位,會選中毫秒(多數派),**那 577 列微秒資料會被解讀成西元五萬年**。
 
-`date, open, high, low, close, volume` —— 標準 OHLCV。`date` 可以是 ISO 字串或 epoch 時間戳(秒/毫秒皆可,匯入工具會依數量級自動判斷單位)。
+兩層都修了:
 
-### 2.2 為什麼起點要往前推到上市首日,而不是沿用 2020-01
+- **下載端**逐列依數量級正規化成毫秒(這是幣安已知的行為,下載工具有責任處理)
+- **匯入端**改為:偵測到混用單位就**明確拒收**,不取多數決 —— 猜錯不報錯但會毀掉整份資料,不該由工具替使用者猜
 
-不是為了「資料多一點比較好」,而是 [`feasibility-paths.md`](./feasibility-paths.md) 第 2.1 節算出的具體差額:在 `N=5` 之下,6.6 年的門檻是 1.37、8.7 年是 1.20。**多出來的 2 年把 `σ_SR` 估計誤差的容錯從「高估 20% 就失守」推到「高估 50% 仍守得住」。**
+### 3.2 🟡 秒 vs 毫秒:塌縮到 1970 年會讓缺漏偵測變成空操作
 
-⚠️ 但這也意味著必須納入 2017 泡沫與 2018 熊市。這兩段的市場結構與現在差異極大,**同質性假設存疑**——這個代價已記錄在 [`feasibility-paths.md`](./feasibility-paths.md) 第 3.3 節,不是被忽略。
+冒煙測試時發現,以秒為單位的時間戳會被當成毫秒,日期全部塌到 1970 年。危險的不是日期錯,而是**日期塌縮到同一天後,規則 1 的缺漏偵測期望範圍只剩一天、差集必為空** —— 閘門完全失效,畫面上還印「✅ 通過」。
 
-### 2.3 指標暖身期
+檢查端因此獨立加了一條「日期早於比特幣創世或落在未來就擋下」的防線,不依賴匯入端猜對。
 
-策略的 `startup_candle_count = 100`(Donchian 週期上界 55、ATR 上界 21,加緩衝)。Freqtrade 會自動從資料起點取用暖身 K 棒,**因此第一個 fold 的實際可用起點會比資料起點晚約 100 天**。規格中的「上市首日」已把這件事考慮進去——直接從最早可得處開始即可,不需額外往前推。
+### 3.3 🟡 邊界時間 tz-aware 導致整條管線當掉
+
+`pd.Timestamp(x, tz="UTC")` 在 `x` 已帶時區時會拋 `ValueError`。測試只傳過 tz-naive,而 CLI 傳的是 tz-aware —— 真實下載時直接崩潰。
+
+**這次是 fail closed 的**(exit 1,什麼都沒寫入),但仍是實作缺陷。已修並補上兩種輸入的參數化回歸測試。
 
 ---
 
-## 3. 資料到手之後怎麼進來
-
-匯入路徑已經建好,而且**只有這一條路**:
+## 4. 如何重現
 
 ```bash
-.venv/bin/python analysis/tools/ingest_market_data.py \
-    --pair BTC/USDT --input /path/to/BTCUSDT-1d.csv \
-    --expected-start 2017-11-01 --expected-end 2026-07-31 \
-    --note "來源說明"
+# 1. 下載(每個交易對約 3 分鐘,108 個月逐檔驗 SHA256)
+.venv/bin/python analysis/tools/download_binance_vision.py \
+    --pair BTCUSDT --start 2017-08 --end 2026-07 --out /tmp/dl/BTCUSDT-1d.csv
+.venv/bin/python analysis/tools/download_binance_vision.py \
+    --pair ETHUSDT --start 2017-08 --end 2026-07 --out /tmp/dl/ETHUSDT-1d.csv
+
+# 2. 品質閘門 + 寫入(1.4 節的強制步驟)
+for P in BTC ETH; do
+  .venv/bin/python analysis/tools/ingest_market_data.py \
+      --pair $P/USDT --input /tmp/dl/${P}USDT-1d.csv \
+      --expected-start 2017-08-17 --expected-end 2026-07-31 \
+      --note "data.binance.vision 月封存,逐檔 SHA256 驗證通過"
+done
+
+# 3. 比對已納入版控的校驗和,確認位元組相同
+diff <(sort /tmp/dl/BTCUSDT-1d.sha256) <(sort user_data/data/checksums/BTCUSDT-1d.sha256)
 ```
 
-工具會在寫入之前強制跑完 [`backtest-procedure.md`](./backtest-procedure.md) 1.4 節的規則 1–3(`analysis/data_quality.py`),並把來源記錄進 `user_data/data/binance/PROVENANCE.md`。
-
-### 3.1 閘門的行為
+### 4.1 閘門行為
 
 | 情況 | 行為 |
 |---|---|
 | 結構性錯誤(欄位缺失、`high < max(open,close)`、日期無時區、重複/未排序、非正價格) | ❌ 擋下 |
-| 日期不合理(早於比特幣創世、或在未來) | ❌ 擋下 —— 這是 epoch 單位判斷錯誤的防線,見 3.2 |
+| 日期不合理(早於比特幣創世、或在未來) | ❌ 擋下 |
+| 時間戳混用多種單位 | ❌ 擋下 |
 | 連續 ≥3 日缺漏(規則 2 第三級) | ❌ 擋下 |
-| 孤立缺漏(規則 2 第一級) | ⚠️ 擋下並要求先重下;確實重下過仍缺漏才用 `--already-redownloaded` 放行並記錄為「資料缺口警示」 |
-| 量價背離的價格尖刺(規則 3) | ⚠️ 警示,需人工比對其他資料源是否能複現 |
+| 孤立缺漏(規則 2 第一級) | ⚠️ 擋下並要求先重下;確實重下過仍缺才用 `--already-redownloaded` |
+| 量價背離的價格尖刺(規則 3) | ⚠️ 警示,需人工比對其他資料源 |
 
-**沒有 `--force`,也沒有 forward-fill / 插值的能力**——不是沒做,是刻意不提供。1.4 節規則 2 明訂 forward-fill 會捏造一根從未存在的價格;能力不存在,才不會在趕時間時被說服使用。這一點有測試把關(`test_module_provides_no_data_repair_functions`)。
-
-### 3.2 建這條路時抓到的一個真實 bug
-
-冒煙測試時發現:餵進**以秒為單位**的 epoch 時間戳,工具會當成毫秒解析,所有日期塌縮到 1970 年。真正危險的不是日期錯,而是**日期一旦全部塌縮到同一天,規則 1 的缺漏偵測就變成空操作**(期望範圍只剩一天,差集必為空)——整個品質閘門會在毫無徵兆的情況下失效,而且畫面上還是印「✅ 通過」。
-
-已修:匯入端依數量級自動判斷單位(秒/毫秒/微秒/奈秒),檢查端另外獨立擋下不合理日期。**兩層防線各有測試**,不依賴其中任何一層。
-
-> 這類「錯得很安靜」的失效,與 [`pipeline-findings.md`](./pipeline-findings.md) 記錄的 `MAX_LOSS` 哨兵值汙染是同一種——都是不會報錯、但會讓整個統計結論失去意義的問題。
+**沒有 `--force`,也沒有 forward-fill / 插值的能力** —— 不是沒做,是刻意不提供。1.4 節規則 2 明訂 forward-fill 會捏造一根從未存在的價格;能力不存在,才不會在趕時間時被說服使用。有測試把關(`test_module_provides_no_data_repair_functions`)。
 
 ---
 
-## 4. 取得資料的可行途徑
+## 5. ⛔ 下一步的順序不能顛倒
 
-### 4.1 建議:調整環境網路政策
+資料已經在手上,**這使得預先登錄的時間窗口正在關閉**。依 [`feasibility-paths.md`](./feasibility-paths.md) 5.3 節與 [`CP-001`](./change-proposals/CP-001-hyperopt-epochs.md) 第 3 節:
 
-在 [claude.ai/code](https://claude.ai/code) 訊息框上方的環境選擇器裡,把環境的 **Network access** 改成 **Custom**,在 **Allowed domains** 逐行填入網域,並勾選 **Also include default list of common package managers**(保留 PyPI/GitHub,否則環境會失去套件來源)。**這是使用者才能做的設定,無法從 session 內部變更。**
+- ⬜ **先**決定是否採用方案 F,寫成 CP-003
+- ⬜ **先**把 5 個策略參數中的 4 個事前固定,寫下每個值的來源依據(公開先驗知識 vs. 我方推理),commit 進 git 留下時間戳
+- ⬜ **然後才**執行 Pass A / Pass B
 
-需要放行**兩個**網域:
+**參數一旦在看過真實資料之後才定,`N` 就不再是 5,[`feasibility-paths.md`](./feasibility-paths.md) 的整個可行性結論隨之失效。** git commit 的時間戳是這件事唯一的客觀證據,而它只在參數先於回測 commit 時才成立。
 
-```
-data.binance.vision
-api.binance.com
-```
-
-**為什麼兩個都要 —— 這點我先前講得不夠精確。** 查 Freqtrade 2026.7 原始碼(`exchange/binance.py`、`exchange/binance_public_data.py`)確認其下載路徑是兩段式:
-
-1. 主體從 `data.binance.vision` 抓 ZIP 封存(`get_historic_ohlcv_fast`)
-2. 但該函式需要 `markets=self.markets`,而 `load_markets()` 走 `api.binance.com`;且封存只到前一日,**最近幾根 K 棒仍會回退到 REST API**(原始碼註解:「download the remaining data from rest API」)
-
-**只放行 `data.binance.vision` 會失敗。**
-
-安全性上值得說明的是:這兩個端點在本專案的用法**都是未認證的公開資料**。專案沒有設定任何 API key([`security-policy.md`](./security-policy.md)),`api.binance.com` 的私有端點(下單、帳戶、提領)需要簽章才能呼叫,**放行網域本身不會產生任何帳戶或資金存取能力**。
-
-> ⚠️ 網路政策是在 session 啟動時套用的。改完設定後**需要開一個新的 session** 才會生效,現有 session 不會重新讀取。
-
-放行之後就不需要本文件第 3 節的人工匯入路徑,直接:
-
-```bash
-freqtrade download-data --config user_data/configs/config-common.json \
-    --pairs BTC/USDT ETH/USDT --timeframes 1d \
-    --timerange 20170801-20260731
-```
-
-`download-data` 走的是 Freqtrade 自己的下載與寫入流程,不會經過 `ingest_market_data.py`。**因此下載完成後仍須手動跑一次品質檢查**,才算完成 1.4 節「進入任何 fold 之前的強制步驟」:
-
-```bash
-.venv/bin/python -c "
-from freqtrade.data.history import load_pair_history
-from pathlib import Path
-from analysis.data_quality import check_ohlcv
-for p in ['BTC/USDT','ETH/USDT']:
-    df = load_pair_history(p,'1d',Path('user_data/data/binance'))
-    print(check_ohlcv(df,p).summary())
-"
-```
-
-### 4.2 或:在本環境外下載後提供檔案
-
-在自己的機器上取得後,把檔案放進本專案再跑第 3 節的匯入工具即可。格式要求見 2.1,匯入工具會把品質檢查做完。
-
-⚠️ **兩個交易對的上市日期(BTC/USDT 約 2017-11、ETH/USDT 約 2017-08)是我方記憶,本環境無網路無法核實。** 直接從各交易對最早可得的資料開始即可,不必遷就這兩個日期;實際起點請填進 `--expected-start`,匯入工具會據此檢查範圍是否完整。
-
----
-
-## 5. 在資料到手之前,還能做什麼
-
-已完成、不需要資料的:
-
-- ✅ 統計模組(`analysis/`)與 62 項測試
-- ✅ MinTRL 與時間單位防護([`CP-002`](./change-proposals/CP-002-dsr-time-unit.md))
-- ✅ 可行性分析([`feasibility-paths.md`](./feasibility-paths.md))
-- ✅ 資料品質閘門與匯入路徑(本文件第 3 節)
-
-**還沒做、但同樣不需要資料的**——而且依 [`feasibility-paths.md`](./feasibility-paths.md) 5.3 節的預先登錄原則,**必須在資料到手之前做完**:
-
-- ⬜ 決定是否採用方案 F,若採用則寫成 CP-003
-- ⬜ 若採用,把 5 個策略參數中的 4 個事前固定,並明確寫下每個值的來源依據(公開先驗知識 vs. 我方推理),commit 進 git 留下時間戳
-
-**這件事的順序不能顛倒。** 參數一旦在看過真實資料之後才定,`N` 就不再是 5,整個可行性分析的結論隨之失效。
+⚠️ 我方目前**尚未對這份資料跑過任何回測、任何指標、任何統計量**。截至本文件寫成,除了第 0 節那四個地標價格之外,沒有看過這份資料的任何性質 —— 這一點本身就是預先登錄有效性的一部分,記錄在此。
