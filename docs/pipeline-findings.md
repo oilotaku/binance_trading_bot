@@ -88,6 +88,24 @@ hyperopt 與 OOS backtest **必須成對、緊鄰執行**,中間不得插入其�
 
 ---
 
+## 🔧 執行器 `analysis/tools/run_walk_forward.py`
+
+依上述發現,walk-forward 執行器把三個約束寫進程式結構,而不是靠執行者記得:
+
+| 約束 | 落實方式 | 迴歸測試 |
+|---|---|---|
+| hyperopt 與 OOS 回測逐 fold 成對緊鄰 | `run_fold()` 同時包含兩步,不存在「先全部 hyperopt」的呼叫路徑 | `test_hyperopt_and_backtest_run_paired_per_fold` 斷言呼叫序列必須是 `hyperopt,backtesting,hyperopt,backtesting` |
+| 每 fold 參數立即備份 | 寫入後立刻複製到 `analysis/artifacts/pass_X/fold_NN/params.json` | `test_run_fold_fails_loudly_if_params_file_missing` |
+| OOS 回測禁用快取 | 一律加 `--cache none` | `test_oos_backtest_disables_cache` |
+| purge 邊界正確傳入 loss function | 逐 fold 設定 `ANALYSIS_EMBARGO_DAYS` / `ANALYSIS_IS_END` 環境變數 | `test_hyperopt_receives_purge_env_vars` |
+| fold 數不足即中止 | 少於 5 個 fold 直接拒絕執行(statistical-methodology.md 3.5 節) | 實測驗證(2 個 fold 時正確中止) |
+
+另支援中斷續跑(`--resume`):9 fold × 1,000 epochs 可能數小時,每個 fold 完成即寫入 `state.json`。
+
+**⚠️ 執行器的 CLI 編排部分無法在本環境實測** —— 它以 subprocess 呼叫真實 `freqtrade` CLI,而每次呼叫都需要向交易所載入 market metadata,在本環境必然失敗。上表的約束是用 mock 掉 `_run()` 的方式驗證(這正好也是最容易在重構時被無意破壞的部分);**實際的端到端執行需要在能連上 Binance 的環境進行**。
+
+---
+
 ## ⚠️ 這次測試**沒有**驗證的事
 
 必須明確劃清界線,避免日後誤讀:

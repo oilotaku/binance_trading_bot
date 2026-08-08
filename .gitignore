@@ -56,3 +56,10 @@ deploy/*.env
 # OS
 .DS_Store
 Thumbs.db
+
+# walk-forward 執行產物(每個 fold 的 hyperopt/回測結果與參數備份)。
+# 體積大且可重新產生;真正該進版控的是產生它的腳本與最終結論。
+analysis/artifacts/
+
+# Freqtrade hyperopt 執行期鎖檔
+user_data/hyperopt.lock
