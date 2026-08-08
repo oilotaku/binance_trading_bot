@@ -225,3 +225,14 @@ This plan takes the feature requirements each of the 8 roles raised in [`stable-
 - [x] Phase 9 — Go/No-Go 檢查清單(`go-no-go-checklist.md`,✅ 已確認,結論 🟢 GO)
 
 **Phase 0-9 規劃階段全數結案(2026-08-07)。下一步:Phase 10 實作,依各角色規格分模組開發。**
+
+### Phase 10 進度(2026-08-08 起)
+
+- [x] Freqtrade 2026.7 安裝(`.venv/`,不進 git)
+- [x] `user_data/` 骨架(`freqtrade create-userdir` 標準結構)+ `user_data/configs/` 客製分層設定
+- [x] `.gitignore` 補上 `secrets-*.json`/`deploy/*.env` 規則,已實測驗證正確排除機密、保留範例檔
+- [x] 策略骨架 `RegimeFilteredMomentumBreakout.py`:訊號邏輯、`custom_stoploss`、`custom_stake_amount`、`custom_exit`(time-stop)、`confirm_trade_entry`(每日熔斷)、`protections` 皆已實作並**通過真實 `StrategyResolver`/`ProtectionManager` 載入驗證**(非僅語法檢查)
+- [x] 過程中順帶解決 3 項 `go-no-go-checklist.md` 4.1 節列出的待查證項目(protections 歸屬、MaxDrawdown 雙實例並存、`stop_duration_candles` 換算),詳見該文件更新
+- [ ] **卡點:此 Claude Code 執行環境的對外網路被 egress proxy 擋下,無法連線 Binance API**,因此 `freqtrade download-data`/`backtesting` 無法在此環境端到端驗證。需要在能連上 Binance 的真實環境(您的本機或 VPS)完成:下載歷史資料 → 跑 `backtest-procedure.md` 的 walk-forward 驗證流程 → 確認 Phase 2 通過門檻
+- [ ] Kelly 倉位公式的 `f*` 尚待 Phase 6 真實回測產出 OOS Sharpe/波動度後補上(目前 `custom_stake_amount` 僅套用 `risk-policy.md` 硬上限,見程式碼內註解)
+- [ ] `analysis/` 目錄下 `backtest-procedure.md` 第 8 節規劃的 9 個統計驗證模組尚未撰寫

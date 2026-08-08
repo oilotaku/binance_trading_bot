@@ -65,9 +65,10 @@ Phase 1-7 的 7 份文件原本狀態欄位皆為「🟡 草稿完成,待專案�
 
 ### 4.1 Freqtrade 版本相依,需在當時實際版本核實(中等風險——若有出入,通常是規格微調,不影響架構)
 
-- Protections 的確切設定機制是否仍是策略類別的 `protections` property(`architecture-spec.md` 9)
+- ~~Protections 的確切設定機制是否仍是策略類別的 `protections` property~~ **✅ 已於 Phase 10 骨架建置(2026-08-08)實測確認:`protections` 只能是策略類別 attribute,`strategy_resolver.py` 的 config 覆寫清單不含此鍵,config 層級設定不會被讀取。詳見 `user_data/configs/config-common.json` 的 `_protections_comment`。**
 - `/stop` 指令對已開倉部位的確切管理行為(`architecture-spec.md` 9,`execution-spec.md` 4.4 節 runbook 已設計成不依賴此細節)
-- `MaxDrawdown` Protection 能否在同一策略內並存兩個不同閾值的實例(`risk-policy.md` 8;若不支援,月回撤 8% 需改走自訂邏輯路徑)
+- ~~`MaxDrawdown` Protection 能否在同一策略內並存兩個不同閾值的實例~~ **✅ 已於 Phase 10 骨架建置實測確認:可以並存,`ProtectionManager` 成功載入月回撤(30 天/8%)與 kill switch(365 天/15%)兩個獨立 `MaxDrawdown` 實例,無需改走自訂邏輯路徑。**
+- **附帶確認**:`stop_duration_candles=1` 於 `timeframe=1d` 下實測確認精確等於 1440 分鐘(24 小時),`risk-policy.md` 5.4 節「計時單位待查證」的疑慮已解除。
 - `create_order`/`create_stoploss` 是否仍不套用自動重試、`enter_positions`/`handle_similar_open_order` 訊號級防護是否仍存在、Binance Spot `stoploss_order_types` 是否仍只映射 `"limit"`(`execution-spec.md` 10,皆為原始碼查證結果,穩定性保證低於公開文件)
 - `IHyperOptLoss` 介面能否取得足夠的 trade-level 資訊做 purge 過濾(`backtest-procedure.md` 9)
 - `custom_stake_amount` 是否已原生支援直接裁剪,或仍需透過 `confirm_trade_entry` 否決(`security-policy.md` 7)
