@@ -283,3 +283,39 @@ def test_check_atr_boundary_passes_when_centered():
     k_values = [2.8, 2.9, 3.0, 3.1, 3.2, 2.9, 3.0, 3.1, 3.0]
     result = risk_policy_validation.check_atr_boundary(k_values)
     assert result["not_matching"] is False
+
+
+# ---- data_loader.py:MAX_LOSS 哨兵值處理(迴歸測試) ----
+
+def test_hyperopt_max_loss_sentinel_excluded_from_sigma_sr(tmp_path, monkeypatch):
+    """
+    迴歸測試:Freqtrade 對交易筆數不足的 epoch 指派 MAX_LOSS=100000 哨兵值。
+    若把它當成 sr_trade=-100000,sigma_SR 會被汙染數個數量級,連帶讓 DSR 恆為 0
+    (整合測試實測:sigma_SR 從 0.1970 變成 30779.4845),且完全不會報錯。
+    """
+    from analysis import data_loader
+
+    fake_epochs = [
+        {"loss": -0.50, "results_metrics": {"total_trades": 30}, "params_dict": {}, "is_best": True},
+        {"loss": -0.30, "results_metrics": {"total_trades": 25}, "params_dict": {}, "is_best": False},
+        {"loss": -0.10, "results_metrics": {"total_trades": 20}, "params_dict": {}, "is_best": False},
+        # 哨兵值:交易筆數不足,Freqtrade 未實際呼叫 loss function
+        {"loss": 100000, "results_metrics": {"total_trades": 0}, "params_dict": {}, "is_best": False},
+        {"loss": 100000, "results_metrics": {"total_trades": 1}, "params_dict": {}, "is_best": False},
+    ]
+
+    monkeypatch.setattr(
+        "freqtrade.optimize.hyperopt_tools.HyperoptTools.load_filtered_results",
+        lambda *a, **k: (fake_epochs, len(fake_epochs)),
+    )
+
+    df, total = data_loader.load_hyperopt_epochs(tmp_path / "dummy.fthypt", {})
+
+    assert total == 5
+    assert df["is_sentinel"].sum() == 2, "兩個 MAX_LOSS epoch 應被標記為哨兵值"
+    assert df["sr_trade"].isna().sum() == 2, "哨兵值的 sr_trade 應為 NaN"
+
+    sigma_sr = df["sr_trade"].dropna().std(ddof=1)
+    assert sigma_sr < 1.0, (
+        f"sigma_SR={sigma_sr} 應在 0.x 量級;若哨兵值未被排除會暴衝到數萬"
+    )

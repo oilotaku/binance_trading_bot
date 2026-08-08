@@ -31,6 +31,16 @@ user_data/hyperopt_results/
 *.sqlite-shm
 *.sqlite-wal
 
+# 合成資料與其回測產出(僅供管線整合測試,見 docs/pipeline-findings.md)。
+# 產生器 analysis/tools/make_synthetic_data.py 有進 git,產物本身不進 —— 可隨時重新產生,
+# 且絕不可與真實回測結果混淆。
+user_data/data_synthetic/
+user_data/backtest_synthetic/
+
+# hyperopt 選出的參數覆寫檔:是每個 fold 各自的產物、且會被下一個 fold 覆寫
+# (見 docs/pipeline-findings.md 發現二),不應以「當下剛好是誰的參數」進版控
+user_data/strategies/*.json
+
 # Freqtrade per-environment secrets (security-policy.md 2.2 節,實測驗證過的 glob pattern)
 user_data/configs/secrets-*.json
 !user_data/configs/secrets-*.example.json

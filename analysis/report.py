@@ -71,9 +71,25 @@ def run_fold_pipeline(
     if epochs_df.empty:
         raise ValueError(f"Fold {fold_index}: hyperopt epoch 紀錄為空,無法計算 DSR")
 
-    sigma_sr = float(epochs_df["sr_trade"].dropna().std(ddof=1))
-    best_row = epochs_df.loc[epochs_df["is_best"]].iloc[0] if epochs_df["is_best"].any() else (
-        epochs_df.sort_values("sr_trade", ascending=False).iloc[0]
+    # 排除哨兵值 epoch(交易筆數不足、沒有真實 Sharpe),見 data_loader 的說明
+    valid_epochs = epochs_df.dropna(subset=["sr_trade"])
+    if len(valid_epochs) < 2:
+        raise ValueError(
+            f"Fold {fold_index}: 有效 epoch 僅 {len(valid_epochs)} 個(其餘為交易筆數不足的"
+            f"哨兵值),無法計算 sigma_SR。應檢查該 fold 的參數搜尋範圍或資料是否有問題。"
+        )
+
+    sigma_sr = float(valid_epochs["sr_trade"].std(ddof=1))
+
+    # DSR 的 N(嘗試次數)用「有效 epoch 數」而非總 epoch 數:
+    # SR0 = E[max_N{SR_n}] 問的是「N 次嘗試中最好的那次,純靠運氣能有多高」,
+    # 而產生零筆交易的哨兵 epoch 從來就沒有機會成為那個最大值,不應計入 N。
+    # (兩種算法差異通常不大,但用總數會在無正當理由下高估懲罰;此處採統計上正確的定義,
+    #  並同時揭露 total_epochs 供審閱者自行判斷。)
+    n_trials_effective = len(valid_epochs)
+
+    best_row = valid_epochs.loc[valid_epochs["is_best"]].iloc[0] if valid_epochs["is_best"].any() else (
+        valid_epochs.sort_values("sr_trade", ascending=False).iloc[0]
     )
     sr_hat = float(best_row["sr_trade"])
 
@@ -91,7 +107,7 @@ def run_fold_pipeline(
         n_eff=ss_result.n_eff,
         skew=skew_val,
         kurtosis=kurt_val,
-        n_trials=total_epochs,
+        n_trials=n_trials_effective,
         sigma_sr=sigma_sr,
     )
 
