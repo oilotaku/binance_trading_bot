@@ -12,7 +12,8 @@ from analysis import vol_target as vt
 def test_governance_constants_are_pinned():
     """CP-004/CP-005 定案的數字。任何改動都必須明確改測試,不能悄悄調。"""
     assert vt.W == 20
-    assert vt.SIGMA_TARGET == 0.25
+    assert vt.SIGMA_TARGET == 0.123   # CP-006 修正(原 0.25)
+    assert vt.DD_LOOKBACK == 365      # CP-006 選項 A
     assert vt.MAX_EXPOSURE == 0.80
     assert vt.REBALANCE_BAND == 0.20
     assert (vt.DD_RAMP_START, vt.DD_RAMP_END) == (0.30, 0.40)
@@ -89,14 +90,56 @@ def test_rebalance_band_reduces_turnover():
 
 def test_drawdown_ramp_cuts_exposure_in_deep_drawdown():
     """
-    持續下跌造成深度回撤後,斜坡應把曝險壓到接近 0。
+    深度回撤期間,斜坡應把曝險壓到接近 0。
     這是 CP-005 3.4 節取代「暫停新倉」的機制,必須真的會動作。
     """
     r = np.concatenate([np.zeros(30), np.full(400, -0.004)])
     with_ramp = vt.simulate(r, cost_per_turnover=0.0, apply_drawdown_ramp=True)
     without = vt.simulate(r, cost_per_turnover=0.0, apply_drawdown_ramp=False)
-    assert with_ramp["exposure"][-1] < without["exposure"][-1]
-    assert with_ramp["exposure"][-1] < 0.05
+    assert with_ramp["exposure"].min() < 0.01
+    assert with_ramp["exposure"].sum() < without["exposure"].sum()
+
+
+def test_ramp_is_not_an_absorbing_state():
+    """
+    ⛔ CP-006 選項 A 存在的唯一理由。
+
+    第一次執行時斜坡用**歷史全期**回撤:曝險歸零 → 權益凍結 → 回撤永遠停在 40%
+    → 曝險永遠是 0。策略在第 826 天死亡,其後 75% 的樣本期只是一條水平線
+    (見 docs/strategy-2-run-1-invalid.md 第 2 節)。
+
+    改用滾動視窗後,舊高點會隨時間滾出視窗,策略必須能恢復。
+    """
+    crash = np.concatenate([
+        np.zeros(30),
+        np.full(120, -0.010),      # 急跌造成深度回撤
+        np.random.default_rng(0).normal(0, 0.02, 600),   # 之後回到正常波動
+    ])
+    out = vt.simulate(crash, cost_per_turnover=0.0)
+    e = out["exposure"]
+    assert e[140:200].min() < 0.05, "急跌期間斜坡未生效"
+    assert e[-200:].mean() > 0.05, "回撤過後未恢復 —— 仍是吸收態"
+
+
+def test_rolling_window_underreports_sustained_decline():
+    """
+    ⚠️ 選項 A 的已知代價,固定成測試以免被遺忘。
+
+    持續緩跌時,滾動視窗的參考高點會跟著往下滑,滾動回撤因此永遠偏小,
+    斜坡不會持續生效。實測(見下)全期回撤 45.9% 時滾動回撤只有 39.9%,
+    曝險已恢復到上限。
+
+    **這不是 bug,是滾動視窗的定義使然** —— 它換掉了吸收態,代價是對
+    「長期緩跌」的保護較弱。此性質必須在結果解讀時納入考量。
+    """
+    r = np.concatenate([np.zeros(30), np.full(400, -0.004)])
+    out = vt.simulate(r, cost_per_turnover=0.0)
+    eq = np.concatenate([[0.0], np.cumsum(out["returns"])])
+    t = 429
+    full_dd = 1 - np.exp(eq[t] - eq[: t + 1].max())
+    roll_dd = 1 - np.exp(eq[t] - eq[max(0, t - vt.DD_LOOKBACK) : t + 1].max())
+    assert full_dd > roll_dd, "滾動回撤應小於全期回撤"
+    assert out["exposure"][t] > 0.5, "參考高點滑落後曝險應已恢復"
 
 
 def test_zero_skill_control_preserves_sharpe():

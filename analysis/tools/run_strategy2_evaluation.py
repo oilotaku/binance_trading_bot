@@ -38,15 +38,18 @@ def main() -> int:
     print(f"基準(每日再平衡等權 50/50):n={b['n']}  CAGR {b['cagr']:.2%}  "
           f"Sharpe {b['sharpe']:.4f}  MDD {b['max_drawdown']:.2%}")
 
-    baseline = bm.zero_skill_baseline(b["max_drawdown"])
-    w0 = baseline["exposure"]
-    print(f"零技巧基準曝險 w0 = {w0:.4f}\n")
+    strat = vt.simulate(bench)
+    s = bm.performance_summary(strat["returns"])
+
+    # CP-006:對照組的曝險對齊策略**實際實現**的平均曝險。
+    # 假說第 3 節寫的就是「在相同的平均曝險下」比較;第一次執行用
+    # 「MDD上限/基準MDD」推算 w0 既算錯了(回撤在對數空間才線性),
+    # 也讓兩組的風險水位差了 7 倍,那不是同一個比較。
+    w0 = strat["mean_exposure"]
+    print(f"對照組曝險 = 策略實現平均曝險 = {w0:.4f}\n")
 
     ctrl = vt.zero_skill_control(bench, w0)["returns"]
     c = bm.performance_summary(ctrl)
-
-    strat = vt.simulate(bench)
-    s = bm.performance_summary(strat["returns"])
 
     print("-" * 70)
     print(f"{'':22}{'零技巧對照組':>16}{'波動度目標化':>18}")
@@ -66,22 +69,27 @@ def main() -> int:
 
     # ---- CP-004 第一層 ----
     mdd_ok = s["max_drawdown"] < vt.DD_RAMP_START
-    ret_ok = (s["cagr"] / b["cagr"]) > baseline["required_retention"]
+    beats_mdd = s["max_drawdown"] < c["max_drawdown"]
+    beats_ret = s["cagr"] > c["cagr"]
     print("\n" + "=" * 70)
     print("第一層(必達,不宣稱 edge)")
     print("=" * 70)
-    print(f"  MDD {s['max_drawdown']:.2%} < 30%           {'✅' if mdd_ok else '❌'}")
-    print(f"  保留報酬 {s['cagr'] / b['cagr']:.1%} > {baseline['required_retention']:.1%}      "
-          f"{'✅' if ret_ok else '❌'}")
-    print(f"  → 假說預測「MDD 低於 30% 且/或保留報酬高於 34.0%」:"
-          f"{'✅ 成立' if (mdd_ok or ret_ok) else '❌ 被推翻'}")
+    print(f"  (a) 絕對約束:MDD {s['max_drawdown']:.2%} ≤ 30%          "
+          f"{'✅' if mdd_ok else '❌'}")
+    print(f"  (b) 同曝險下優於零技巧:")
+    print(f"      MDD      {s['max_drawdown']:.2%} vs {c['max_drawdown']:.2%}   "
+          f"{'✅' if beats_mdd else '❌'}")
+    print(f"      年化報酬 {s['cagr']:.2%} vs {c['cagr']:.2%}   "
+          f"{'✅' if beats_ret else '❌'}")
+    print(f"  → 假說預測「相同平均曝險下 MDD 更低且/或報酬更高」:"
+          f"{'✅ 成立' if (beats_mdd or beats_ret) else '❌ 被推翻'}")
 
     # ---- CP-004 第二層 ----
     rho = float(np.corrcoef(strat["returns"], bench)[0, 1])
     test = sdiff.sharpe_difference_test(strat["returns"], bench, n_boot=5000)
     delta_ann = test["delta"] * np.sqrt(365)
     se_ann = test["se_hac"] * np.sqrt(365)
-    required = sdiff.minimum_detectable_difference(se_ann, n_trials=10)
+    required = sdiff.minimum_detectable_difference(se_ann, n_trials=13)  # CP-006
 
     print("\n" + "=" * 70)
     print("第二層(可選,宣稱 edge)")
@@ -91,7 +99,7 @@ def main() -> int:
     print(f"  Sharpe 差距 Δ = {delta_ann:+.4f}(年化)")
     print(f"  HAC 標準誤     = {se_ann:.4f}")
     print(f"  bootstrap p    = {test['p_boot']:.4f}")
-    print(f"  N=10 所需門檻  = {required:.4f}")
+    print(f"  N=13 所需門檻  = {required:.4f}")
     print(f"  → {'✅ 通過' if delta_ann >= required else '❌ 不通過'}")
     return 0
 

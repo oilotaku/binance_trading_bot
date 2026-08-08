@@ -2,16 +2,17 @@
 策略二的核心邏輯:波動度目標化(CP-004 / CP-005 已核准的規格)。
 
 刻意實作成**與 Freqtrade 無關的純函式**,理由:
-    第一層的判定(MDD ≤ 30%、保留報酬 ≥ 34.0%)是組合層的權益曲線問題,
+    第一層的判定是組合層的權益曲線問題,
     不是逐筆交易問題。用純函式在報酬序列上直接計算,可以完全避免
     Freqtrade 的交易撮合、部位精度、最小下單量等細節污染統計判定。
     Freqtrade 端的實作(執行層)另行對接,但**判定以本模組為準**。
 
-四個事前指定的參數,全部來自已核准文件,不得在此優化:
-    W                = 20     strategy-2-hypothesis.md 2.1 節
-    SIGMA_TARGET     = 0.25   同上 2.2 節(由零技巧曝險 0.3397 × 基準波動 73.8% 推導)
-    MAX_EXPOSURE     = 0.80   CP-005 3.5 節(risk-policy.md 4.3 節的合併名目上限)
-    REBALANCE_BAND   = 0.20   CP-005 第 4 節
+事前指定的參數,全部來自已核准文件,不得在此優化:
+    W                = 20      strategy-2-hypothesis.md 2.1 節
+    SIGMA_TARGET     = 0.123   CP-006 修正(原 0.25 的推導把回撤當成百分比線性)
+    MAX_EXPOSURE     = 0.80    CP-005 3.5 節(risk-policy.md 4.3 節的合併名目上限)
+    REBALANCE_BAND   = 0.20    CP-005 第 4 節
+    DD_LOOKBACK      = 365     CP-006 選項 A(取自 risk-policy.md 5.3 節既有數字)
 """
 
 from __future__ import annotations
@@ -20,9 +21,19 @@ import numpy as np
 
 # --- CP-004 / CP-005 定案的治理數字。改動任一個都必須走變更提案流程。---
 W = 20
-SIGMA_TARGET = 0.25
+# CP-006 修正:σ_target 原為 0.25,推導時誤把回撤當成隨曝險線性縮放。
+# 回撤在**對數空間**才線性:w₀ = −ln(1−0.30)/(−ln(1−0.8832)) = 0.1661,
+# 而非 0.30/0.8832 = 0.3397。σ_target = 0.1661 × 73.8% ≈ 0.123。
+SIGMA_TARGET = 0.123
 MAX_EXPOSURE = 0.80
 REBALANCE_BAND = 0.20
+
+# CP-006 選項 A:回撤斜坡改用**滾動視窗**,而非歷史全期。
+# 全期回撤會讓曝險歸零後權益凍結、回撤永不恢復、曝險永遠是 0(吸收態);
+# 滾動視窗讓舊高點隨時間滾出視窗,策略得以恢復。
+# 365 取自 risk-policy.md 5.3 節 kill switch 的 lookback_period_candles,
+# 是既有的治理數字,不是本次新挑的值。
+DD_LOOKBACK = 365
 
 # CP-005 3.4 節:線性降風險斜坡的兩個端點(皆為已核准的治理數字)
 DD_RAMP_START = 0.30  # CP-004 第一層回撤上限
@@ -69,6 +80,7 @@ def simulate(
     max_exposure: float = MAX_EXPOSURE,
     rebalance_band: float = REBALANCE_BAND,
     apply_drawdown_ramp: bool = True,
+    dd_lookback: int = DD_LOOKBACK,
     cost_per_turnover: float = 0.0015,
 ) -> dict:
     """
@@ -93,8 +105,8 @@ def simulate(
     net = np.zeros(n)
     turnover = np.zeros(n)
 
-    equity_log = 0.0      # 策略權益(對數)
-    peak_log = 0.0        # 歷史高點(對數)
+    equity_log = 0.0
+    equity_path = np.zeros(n + 1)   # equity_path[t] = 第 t 期**開始前**的對數權益
     current_w = 0.0
 
     for t in range(n):
@@ -105,6 +117,10 @@ def simulate(
             # 不用任何預設曝險 —— 那等於對未知波動做了一個沒有依據的假設。
             target = 0.0
         else:
+            # ⚠️ 滾動視窗回撤(CP-006 選項 A),不是歷史全期。
+            # 只用 t 之前已實現的權益,無前視。
+            lo = max(0, t - dd_lookback)
+            peak_log = equity_path[lo : t + 1].max()
             dd = 1.0 - np.exp(equity_log - peak_log)
             ramp = drawdown_ramp_factor(dd) if apply_drawdown_ramp else 1.0
             target = min(max_exposure, sigma_target * ramp / sigma_hat)
@@ -123,7 +139,7 @@ def simulate(
         net[t] = current_w * r[t] - turnover[t] * cost_per_turnover
 
         equity_log += net[t]
-        peak_log = max(peak_log, equity_log)
+        equity_path[t + 1] = equity_log
 
     return {
         "returns": net,
@@ -141,8 +157,14 @@ def zero_skill_control(
     """
     對照組:**固定曝險**,不隨波動調整。
 
-    這是 CP-004 第一層的零技巧基準 —— 縮放曝險會讓回撤與報酬同比例縮小、
-    Sharpe 完全不變。策略二若沒有比它好,就等於什麼都沒做。
+    這是 CP-004 第一層的零技巧基準 —— 縮放曝險不改變 Sharpe(對數空間線性縮放),
+    策略二若沒有比它好,就等於什麼都沒做。
+
+    ⚠️ CP-006 修正:`exposure` 應傳入**策略實際實現的平均曝險**,而非由
+    「MDD上限 / 基準MDD」推算。假說本來就寫的是「在相同的平均曝險下」比較,
+    而先前用 0.3397 推算的作法既算錯了(回撤在對數空間才線性),也讓兩組的
+    風險水位不一致(實測 0.0478 對 0.3397,差 7 倍)。直接對齊實現曝險,
+    比較才是公平的,也才是假說原本指定的。
 
     固定曝險理論上零換手;但實務上每日再平衡回固定權重仍有換手,
     此處保守地忽略(對照組因此**略佔優勢**,使比較不偏袒策略)。
