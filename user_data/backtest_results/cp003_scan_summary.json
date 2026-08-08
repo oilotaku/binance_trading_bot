@@ -1,0 +1,47 @@
+[
+  {
+    "donchian_period": 20,
+    "n_trades": 76,
+    "win_rate": 0.4473684210526316,
+    "mean_ret": 0.023040858910904845,
+    "sr_trade": 0.17228551858433688,
+    "total_profit_pct": 23.248006698699992,
+    "max_drawdown_pct": 8.024520586879326
+  },
+  {
+    "donchian_period": 30,
+    "n_trades": 71,
+    "win_rate": 0.4225352112676056,
+    "mean_ret": 0.016154444377640704,
+    "sr_trade": 0.12070229704533628,
+    "total_profit_pct": 15.189127358499999,
+    "max_drawdown_pct": 7.655223319118969
+  },
+  {
+    "donchian_period": 40,
+    "n_trades": 63,
+    "win_rate": 0.4126984126984127,
+    "mean_ret": 0.014169026440833775,
+    "sr_trade": 0.10351486391203853,
+    "total_profit_pct": 12.211304992,
+    "max_drawdown_pct": 6.531372421364562
+  },
+  {
+    "donchian_period": 50,
+    "n_trades": 57,
+    "win_rate": 0.43859649122807015,
+    "mean_ret": 0.018822736070333353,
+    "sr_trade": 0.1396674827543785,
+    "total_profit_pct": 12.018886065000002,
+    "max_drawdown_pct": 5.081865257753701
+  },
+  {
+    "donchian_period": 55,
+    "n_trades": 55,
+    "win_rate": 0.45454545454545453,
+    "mean_ret": 0.01386762993910424,
+    "sr_trade": 0.11223286833912548,
+    "total_profit_pct": 10.1939632901,
+    "max_drawdown_pct": 5.0815592401893515
+  }
+]
