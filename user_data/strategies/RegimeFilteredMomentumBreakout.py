@@ -86,8 +86,29 @@ class RegimeFilteredMomentumBreakout(IStrategy):
     # optimize=False —— 它不參與任何搜尋演算法,由 run_parameter_scan.py 逐點明確指定。
     DONCHIAN_SCAN_POINTS = (20, 30, 40, 50, 55)
     donchian_period = IntParameter(
-        20, 55, default=35, space="buy", optimize=False, load=True
+        20, 55, default=DONCHIAN_SCAN_POINTS[0], space="buy", optimize=False, load=True
     )
+
+    def _scan_period(self) -> int:
+        """
+        取用當前的 donchian_period,並強制它必須是 DONCHIAN_SCAN_POINTS 之一。
+
+        ⚠️ 這個檢查是 CP-003 `N=5` 會計基礎能否成立的關鍵。若某次回測用了掃描清單外
+        的週期(殘留的參數覆寫檔、有人手改 default、或像本次一樣 default 忘了同步),
+        實際評估過的參數組就超過 5 個,而 CP-003 第 3 節的門檻是以 N=5 算的 ——
+        門檻會偏低、結論偏樂觀,**而且不會有任何跡象**。
+
+        因此這裡直接拋例外中止,而不是回退到某個預設值:
+        寧可讓回測跑不起來,也不要讓它安靜地跑出一個統計基礎已經失效的數字。
+        """
+        n = self.donchian_period.value
+        if n not in self.DONCHIAN_SCAN_POINTS:
+            raise ValueError(
+                f"donchian_period={n} 不在 CP-003 核准的掃描點 {self.DONCHIAN_SCAN_POINTS} 內。"
+                " 用清單外的值會讓 N 超過 5,使 CP-003 第 3 節的門檻計算失效。"
+                " 若確實要新增掃描點,必須先走正式變更提案流程並重算門檻。"
+            )
+        return n
 
     # --- 治理硬上限(architecture-spec.md 3.2 節:絕不可作為 hyperopt 可調參數,一律寫死) ---
     # risk-policy.md 第 0/1 節
@@ -159,7 +180,7 @@ class RegimeFilteredMomentumBreakout(IStrategy):
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        n = self.donchian_period.value
+        n = self._scan_period()
 
         dataframe.loc[
             (
@@ -174,7 +195,7 @@ class RegimeFilteredMomentumBreakout(IStrategy):
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         """「軟」出場路徑:跌破 Donchian 下軌。ATR 移動停損走 custom_stoploss(見下),不在此處理。"""
-        n = self.donchian_period.value
+        n = self._scan_period()
 
         dataframe.loc[
             (dataframe["close"] < dataframe[f"donchian_lower_{n}"]),
