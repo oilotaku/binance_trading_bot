@@ -92,6 +92,88 @@ def test_dsr_worked_example_from_statistical_methodology():
     assert not result["passes_threshold"]
 
 
+def test_mintrl_inverts_psr_exactly():
+    """
+    MinTRL 是 PSR 對樣本數的反解 —— 把 MinTRL 的輸出代回 PSR,
+    應該剛好得到當初設定的信心水準。這是最強的正確性檢查。
+    """
+    sr_hat, sr_star, skew, kurt, conf = 1.3, 0.0, 0.8, 5.0, 0.95
+    n_req = significance.minimum_track_record_length(sr_hat, sr_star, skew, kurt, conf)
+    psr_back = significance.probabilistic_sharpe_ratio(sr_hat, sr_star, n_req, skew, kurt)
+    assert abs(psr_back - conf) < 1e-9, f"反解後代回應得 {conf},實得 {psr_back}"
+
+
+def test_mintrl_infinite_when_sharpe_not_above_threshold():
+    """Sharpe 不優於門檻時,再多樣本也證明不了 —— 必須回傳 inf,不能給一個數字。"""
+    assert significance.minimum_track_record_length(0.5, 0.5, 0.0, 3.0) == float("inf")
+    assert significance.minimum_track_record_length(0.3, 0.8, 0.0, 3.0) == float("inf")
+
+
+def test_mintrl_higher_sharpe_needs_fewer_observations():
+    """Sharpe 越高越容易證明,所需樣本數應單調遞減。"""
+    reqs = [
+        significance.minimum_track_record_length(sr, 0.0, 0.8, 5.0)
+        for sr in [0.8, 1.0, 1.3, 1.8]
+    ]
+    assert reqs == sorted(reqs, reverse=True), f"應單調遞減,實得 {reqs}"
+
+
+def test_mintrl_fat_tails_increase_requirement():
+    """
+    右偏肥尾(趨勢策略的典型形狀)會提高所需樣本數 ——
+    這正是 statistical-methodology.md 2.2 節強調要納入三四階動差的理由。
+    """
+    normal = significance.minimum_track_record_length(1.3, 0.0, skew=0.0, kurtosis=3.0)
+    fat_tail = significance.minimum_track_record_length(1.3, 0.0, skew=0.0, kurtosis=8.0)
+    assert fat_tail > normal, "峰度越高,所需樣本數應越多"
+
+
+def test_mintrl_calendar_conversion_accounts_for_autocorrelation():
+    """自相關(IF>1)會讓相同的日曆時間提供較少的有效樣本,所需年數應變長。"""
+    n_req = 40.0
+    no_autocorr = significance.mintrl_to_calendar_time(n_req, trades_per_year=30, inflation_factor=1.0)
+    with_autocorr = significance.mintrl_to_calendar_time(n_req, trades_per_year=30, inflation_factor=1.67)
+
+    assert with_autocorr["years_required"] > no_autocorr["years_required"]
+    assert abs(no_autocorr["years_required"] - 40 / 30) < 1e-9
+    # 原始交易筆數需求 = n_eff × IF
+    assert abs(with_autocorr["raw_trades_required"] - 40 * 1.67) < 1e-9
+
+
+def test_annualized_sr_to_per_trade_roundtrip():
+    """SR_annual = SR_trade * sqrt(每年交易筆數) —— 換算應可逆。"""
+    sr_trade = significance.annualized_sr_to_per_trade(1.5, trades_per_year=30)
+    assert abs(sr_trade * np.sqrt(30) - 1.5) < 1e-12
+    assert np.isnan(significance.annualized_sr_to_per_trade(1.5, trades_per_year=0))
+
+
+def test_mintrl_unit_mismatch_would_understate_requirement():
+    """
+    回歸測試,鎖住一個真實犯過的錯誤:把「年化 Sharpe」餵進 MinTRL。
+
+    MinTRL 的輸出單位是「觀測數」,而本專案的觀測 = 一筆交易(見
+    statistical-methodology.md 第 1 節),所以輸入必須是 SR_trade。誤傳年化值
+    會讓需求被低估數倍(量級上約與年交易筆數同階)—— 而且**不會報錯**,
+    只會安靜地給出一個過度樂觀的數字。這裡把兩者的差距明確斷言出來。
+    """
+    sr_annual, trades_per_year = 1.5, 30.0
+    sr_trade = significance.annualized_sr_to_per_trade(sr_annual, trades_per_year)
+
+    wrong = significance.minimum_track_record_length(sr_annual, 0.0, 0.8, 5.0)
+    right = significance.minimum_track_record_length(sr_trade, 0.0, 0.8, 5.0)
+
+    # 誤用年化值算出「3.5 筆交易就能證明 Sharpe 1.5」這種明顯荒謬的結果
+    assert wrong < 5, f"誤用年化值應算出荒謬的小數字,實得 {wrong:.1f}"
+    assert right > 5 * wrong, f"誤用年化值={wrong:.1f} 正確={right:.1f}"
+    # 正確的量級應與 statistical-methodology.md 的 n_eff >= 30 硬性下限同一數量級
+    assert 20 < right < 80, f"預期落在數十筆交易的量級,實得 {right}"
+
+
+def test_mintrl_calendar_conversion_propagates_infinity():
+    r = significance.mintrl_to_calendar_time(float("inf"), trades_per_year=30)
+    assert r["years_required"] == float("inf")
+
+
 def test_cluster_correlated_trials_groups_identical_series():
     """完全相同的日報酬序列應被分進同一群。"""
     rng = np.random.default_rng(3)
