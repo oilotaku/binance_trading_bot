@@ -1,6 +1,6 @@
 # Phase 6 — 回測框架與驗證程序 / Backtest Framework & Validation Procedure
 
-> 狀態:**🟡 草稿完成,待專案負責人審閱後確認 / DRAFTED — pending owner review.**
+> 狀態:**✅ 已確認 / CONFIRMED。** 專案負責人已審閱核准。
 > 負責角色:backtest-analyst
 > 範圍限制(承 [`strategy-hypothesis.md`](./strategy-hypothesis.md) 的決定):僅針對 **策略一:Regime-Filtered Momentum Breakout**(Donchian 突破 + 成交量確認 + ATR 移動停損),BTC/ETH 現貨、波段頻率,不處理策略二、三(backlog)。
 > 前提假設(承 [`statistical-methodology.md`](./statistical-methodology.md)):該文件已定案 DSR/PSR 公式與門檻、walk-forward 切分規則、Newey-West/block bootstrap、Kelly 倉位公式、蒙地卡羅回撤估計,**本文件不重新定義任何公式或門檻數字**,只負責把它們接上 Freqtrade 的實際輸出、操作化成可執行步驟。第 7 節「Phase 2 通過門檻總表」是本文件執行結果的終審依據,本文件第 5 節原樣照抄該表並補上「如何算出表中每一格數字」與「不通過怎麼辦」。

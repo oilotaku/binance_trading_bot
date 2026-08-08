@@ -1,6 +1,6 @@
 # Phase 3 — 系統架構規格 / Architecture Specification
 
-> 狀態:**🟡 草稿完成,待專案負責人審閱後確認 / DRAFTED — pending owner review.**
+> 狀態:**✅ 已確認 / CONFIRMED。** 專案負責人已審閱核准。
 > 負責角色:system-architect
 > 範圍限制(承 [`tech-stack-decision.md`](./tech-stack-decision.md) 的決定):本文件**不是**從零設計一套新交易系統的架構圖,而是定義**如何在 Freqtrade 的框架邊界內配置、客製化**——這是 Phase 8 提前拍板後,對 Phase 3 範圍的明確重新定義(見該文件「對後續 Phase 的影響」一節)。任何 Freqtrade 已經處理好的問題(執行引擎、回測引擎、交易所串接、訂單狀態機底層實作),本文件只說明「如何配置」與「驗證它確實滿足我們的需求」,不重新發明。
 > 前提假設(承 [`scope.md`](./scope.md)):現貨、波段頻率、單人專案、負責人本人持有 kill switch 拍板權、金鑰僅交易不可提幣。

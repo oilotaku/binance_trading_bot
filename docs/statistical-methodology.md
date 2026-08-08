@@ -1,6 +1,6 @@
 # Phase 2 — 數學與統計方法論 / Statistical Methodology
 
-> 狀態:**🟡 草稿完成,待專案負責人審閱後確認 / DRAFTED — pending owner review.**
+> 狀態:**✅ 已確認 / CONFIRMED。** 專案負責人已審閱核准。
 > 負責角色:quant-mathematician
 > 範圍限制(承 [`strategy-hypothesis.md`](./strategy-hypothesis.md) 的決定):僅針對 **策略一:Regime-Filtered Momentum Breakout**(Donchian 突破 + ATR 停損),不處理策略二、三(目前為 backlog)。
 > 前提假設(承 [`scope.md`](./scope.md)):現貨、波段頻率、年化目標 Sharpe 1.0–1.5、最大回撤上限 15–20%、月回撤 8% 熔斷。

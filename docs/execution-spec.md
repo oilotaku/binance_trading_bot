@@ -1,6 +1,6 @@
 # Phase 7 — 執行層技術規格 / Execution Layer Specification
 
-> 狀態:**🟡 草稿完成,待專案負責人審閱後確認 / DRAFTED — pending owner review.**
+> 狀態:**✅ 已確認 / CONFIRMED。** 專案負責人已審閱核准。
 > 負責角色:execution-engineer
 > 範圍限制(承 [`tech-stack-decision.md`](./tech-stack-decision.md) 與 [`architecture-spec.md`](./architecture-spec.md) 第 1 節模組表的明確定義):本文件**不**重新設計冪等下單、WebSocket 斷線重連、訂單狀態機這些邏輯——[`architecture-spec.md`](./architecture-spec.md) 第 1 節模組表已明訂執行層「不重新設計;Phase 7(`execution-spec.md`)只處理連線相關參數,不重新設計冪等下單/重連邏輯」。本文件的工作是三件事:(a) **確認** Freqtrade/ccxt 實際提供的保證是什麼、附上查證依據,不是重述 `tech-stack-decision.md`/`architecture-spec.md` 已經斷言過的結論;(b) **定義**讓這些保證在本專案實際生效所需的具體設定值;(c) **解決**其他 Phase 文件明確交棒給 Phase 7 的待查證項目([`architecture-spec.md`](./architecture-spec.md) 7.4/9 節、[`security-policy.md`](./security-policy.md) 5.3/7 節)。
 > 前提假設(承 [`scope.md`](./scope.md)):現貨、BTC/ETH、波段頻率、單人專案。

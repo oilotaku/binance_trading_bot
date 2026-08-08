@@ -1,6 +1,6 @@
 # Phase 4 — 風控政策 / Risk Policy
 
-> 狀態:**🟡 草稿完成,待專案負責人審閱後確認 / DRAFTED — pending owner review.**
+> 狀態:**✅ 已確認 / CONFIRMED。** 專案負責人已審閱核准。
 > 負責角色:risk-manager
 > 範圍限制(承 [`strategy-hypothesis.md`](./strategy-hypothesis.md) 的決定):僅針對 **策略一:Regime-Filtered Momentum Breakout**(Donchian 突破 + 成交量確認 + ATR 移動停損),BTC/ETH 現貨、波段頻率。
 > 前提假設(承 [`scope.md`](./scope.md)):最大回撤上限 15–20%、月回撤 8% 觸發強制停機複查、單人專案且負責人本人持有 kill switch 拍板權、觸發後強制 ~24 小時冷靜期、風控參數不得在虧損當下臨時調整。

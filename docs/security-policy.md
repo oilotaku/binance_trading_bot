@@ -1,6 +1,6 @@
 # Phase 5 — 安全政策 / Security Policy
 
-> 狀態:**🟡 草稿完成,待專案負責人審閱後確認 / DRAFTED — pending owner review.**
+> 狀態:**✅ 已確認 / CONFIRMED。** 專案負責人已審閱核准。第 2.1 節「`secrets-*.json` 為唯一權威來源」措辭與 [`execution-spec.md`](./execution-spec.md) 7.2 節查證結果(環境變數優先序更高)有落差,已記錄於 [`go-no-go-checklist.md`](./go-no-go-checklist.md) 3.2 節,列為 Phase 10 實作時順手修正項,不影響本文件其餘決策的有效性。
 > 負責角色:trading-security-reviewer
 > 前提假設(承 [`scope.md`](./scope.md) 第 5 節):API 金鑰僅交易、禁止提幣;單人專案,負責人本人持有 kill switch 拍板權;kill switch 觸發後強制 ~24 小時冷靜期;風控參數不得在虧損當下臨時調整。
 > 前提假設(承 [`architecture-spec.md`](./architecture-spec.md)):第 5 節已定的觀測性基礎(Telegram bot、REST API server 預設綁定 `127.0.0.1`、不對外開放、遠端操作走 SSH tunnel/VPN);第 6 節已定的崩潰恢復機制(SQLite 對帳 + 行程監督自動重啟);第 7 節已定的 testnet/live 設定檔分層結構(`config-common`/`config-testnet`/`config-live` + 獨立的 `secrets-testnet.json`/`secrets-live.json`,各自獨立資料庫路徑、金鑰變數命名方向)——**本文件在第 4 節直接在此結構基礎上,補上 7.1 節明確交棒的「啟動時強制顯示環境並要求二次確認」程序性防護**。第 4.4 節已定案的人工緊急停止 runbook(`/forceexit all` → `/stop`)——本文件第 6 節的事件應變流程會複用此既有 runbook,而非另起爐灶。

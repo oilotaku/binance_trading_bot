@@ -1,5 +1,6 @@
 # Phase 1 — 策略假說與經濟邏輯 / Strategy Hypothesis & Economic Rationale
 
+> 狀態:**✅ 已確認 / CONFIRMED。** 專案負責人已核准,v1 聚焦策略一。
 > 負責角色:market-economist(經濟機制)+ quant-strategist(訊號邏輯)
 > 範圍限制(承 Phase 0):僅現貨、波段頻率(數小時至數日持倉)
 
