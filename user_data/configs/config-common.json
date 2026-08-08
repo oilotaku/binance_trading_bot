@@ -1,0 +1,108 @@
+{
+    "$schema": "https://schema.freqtrade.io/schema.json",
+    "_comment": "Phase 10 骨架設定,對應 architecture-spec.md 7.2 節 config-common.json。環境無關的共用設定,不含機密。timeframe/pairlist 對應 risk-policy.md 第 0/6.1 節、strategy-hypothesis.md 已定案的 BTC/ETH 現貨。",
+
+    "max_open_trades": 2,
+    "stake_currency": "USDT",
+    "stake_amount": "unlimited",
+    "tradable_balance_ratio": 0.99,
+    "timeframe": "1d",
+    "process_only_new_candles": true,
+
+    "cancel_open_orders_on_exit": false,
+    "trading_mode": "spot",
+    "margin_mode": "",
+
+    "unfilledtimeout": {
+        "entry": 1440,
+        "exit": 1440,
+        "exit_timeout_count": 0,
+        "unit": "minutes",
+        "_comment": "execution-spec.md 8.2 節:1d 策略不需要分秒必爭,逾時時間以「小時」量級為原則設定;此處設為 24 小時(=1 根日K),Phase 10 依實測調整"
+    },
+
+    "entry_pricing": {
+        "price_side": "same",
+        "use_order_book": true,
+        "order_book_top": 1,
+        "price_last_balance": 0.0,
+        "check_depth_of_market": {
+            "enabled": false,
+            "bids_to_ask_delta": 1
+        }
+    },
+    "exit_pricing": {
+        "price_side": "same",
+        "use_order_book": true,
+        "order_book_top": 1
+    },
+
+    "exchange": {
+        "name": "binance",
+        "ccxt_config": {},
+        "ccxt_async_config": {},
+        "pair_whitelist": [
+            "BTC/USDT",
+            "ETH/USDT"
+        ],
+        "pair_blacklist": []
+    },
+
+    "pairlists": [
+        {
+            "method": "StaticPairList"
+        }
+    ],
+
+    "order_types": {
+        "entry": "limit",
+        "exit": "limit",
+        "stoploss": "limit",
+        "stoploss_on_exchange": true,
+        "stoploss_on_exchange_interval": 60,
+        "stoploss_on_exchange_limit_ratio": 0.99,
+        "emergency_exit": "market",
+        "_comment": "execution-spec.md 第 5 節逐項定案;stoploss=limit 是 Binance Spot 的既定限制(原始碼查證,_ft_has['stoploss_order_types']={'limit': 'stop_loss_limit'}),非任意選擇"
+    },
+    "order_time_in_force": {
+        "entry": "GTC",
+        "exit": "GTC"
+    },
+
+    "exchange_ws": false,
+    "_exchange_ws_comment": "execution-spec.md 第 3 節:1d timeframe 用不到市場資料 WebSocket 的低延遲優勢,明確關閉而非放任預設值",
+
+    "internals": {
+        "process_throttle_secs": 60,
+        "_comment": "execution-spec.md 2.2 節:1d 策略主迴圈不需要 5 秒預設頻率,但仍需夠快以回應 Telegram/REST 控制指令與掛單管理,設為 60 秒"
+    },
+
+    "telegram": {
+        "enabled": false,
+        "token": "",
+        "chat_id": "",
+        "_comment": "security-policy.md 2.1 節:token/chat_id 走 .env(非交易金鑰),Phase 10 後續補上並依 architecture-spec.md 5.2 節開啟 notification_settings"
+    },
+
+    "api_server": {
+        "enabled": false,
+        "listen_ip_address": "127.0.0.1",
+        "listen_port": 8080,
+        "verbosity": "error",
+        "enable_openapi": false,
+        "jwt_secret_key": "CHANGE_ME_BEFORE_ENABLING_min32chars",
+        "ws_token": "CHANGE_ME_BEFORE_ENABLING",
+        "CORS_origins": [],
+        "username": "",
+        "password": "",
+        "_comment": "architecture-spec.md 5.2 節:預設關閉,只綁 127.0.0.1,不對外開放。enabled=false 時 Freqtrade 仍強制驗證 jwt_secret_key 長度(schema 無條件檢查),此處為佔位符,啟用前務必換成真正隨機值並透過環境變數/secrets 檔注入,不可沿用此佔位字串"
+    },
+
+    "bot_name": "binance_trading_bot",
+    "initial_state": "stopped",
+    "_initial_state_comment": "刻意設為 stopped,而非 running——啟動後需經過 security-policy.md 第 4 節的啟動確認程序,由操作者主動 /start,不自動開始交易",
+
+    "force_entry_enable": false,
+
+    "_protections_comment": "Protections 不放在這裡。原始碼查證(freqtrade/resolvers/strategy_resolver.py 的 attributes 覆寫清單、freqtrade/constants.py 皆無 'protections' 鍵):protections 只能是策略類別的 class attribute(self.protections),config 層級沒有對應設定會被讀取——這確認了 architecture-spec.md 2.2 節原始判斷正確,是本次 Phase 10 骨架建置時新增的精確驗證。實際定義見 user_data/strategies/RegimeFilteredMomentumBreakout.py 的 protections 屬性。"
+}

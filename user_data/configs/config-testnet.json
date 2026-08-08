@@ -1,0 +1,16 @@
+{
+    "_comment": "architecture-spec.md 7.2 節。對應 scope.md『先用模擬資金』決策。依 execution-spec.md 第 6 節查證結果:Binance 在 ccxt/Freqtrade 目前版本沒有可靠的 sandbox 端點覆寫(原始碼掃描未發現任何 sandbox 相關設定),因此本專案不依賴 Binance Testnet 沙盒,改用 dry_run 模式(對接正式 Binance API 取得真實行情、但不送出真實訂單)——這與 scope.md『不投入真實資金』的核心要求完全相容,見 execution-spec.md 6.2 節步驟三的既定結論。",
+
+    "dry_run": true,
+    "dry_run_wallet": 3000,
+    "_dry_run_wallet_comment": "scope.md 第 2 節已確認的虛擬起始餘額(1,000-5,000 USDT 區間內取 3,000)",
+
+    "db_url": "sqlite:///user_data/tradesv3-testnet.sqlite",
+    "logfile": "user_data/logs/freqtrade-testnet.log",
+
+    "exchange": {
+        "key": "",
+        "secret": ""
+    },
+    "_exchange_comment": "dry_run 模式下 Freqtrade 仍會用 key/secret 呼叫唯讀端點(如行情),但不會用來下真實單。金鑰本身不放這裡——由 secrets-testnet.json(不進 git)在 --config 疊加鏈中補上,見 security-policy.md 2.1 節。"
+}

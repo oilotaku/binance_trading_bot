@@ -26,6 +26,18 @@ yarn-error.log*
 logs/
 data/
 backtest_results/
+user_data/hyperopt_results/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Freqtrade per-environment secrets (security-policy.md 2.2 節,實測驗證過的 glob pattern)
+user_data/configs/secrets-*.json
+!user_data/configs/secrets-*.example.json
+
+# Docker per-environment env files carrying FREQTRADE__EXCHANGE__KEY/SECRET (security-policy.md 2.1 節)
+deploy/*.env
+!deploy/*.example.env
 
 # IDE
 .vscode/

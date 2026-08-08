@@ -1,0 +1,15 @@
+{
+    "_comment": "⚠️ 警告:此檔案對應真實資金交易。architecture-spec.md 7.2 節明訂:在真正的『投入真實資金』Go/No-Go 通過前(scope.md Phase 9/13,非 docs/go-no-go-checklist.md 的規劃階段 Go/No-Go,兩者是不同的關卡),此檔案不應被任何啟動指令引用。目前(2026-08 骨架建置階段)僅先建立結構,dry_run 刻意維持 true 作為安全預設,待實際切換前需經 security-policy.md 第 4 節的啟動確認程序,並手動改為 false。",
+
+    "dry_run": true,
+    "_dry_run_comment": "刻意仍為 true——切換為 false 是未來一個獨立、需要 security-policy.md 第 4 節二次確認 + 型入日期字串的動作,不是現在骨架建置的一部分,防止意外誤用此檔案就變成真實下單",
+
+    "db_url": "sqlite:///user_data/tradesv3-live.sqlite",
+    "logfile": "user_data/logs/freqtrade-live.log",
+
+    "exchange": {
+        "key": "",
+        "secret": ""
+    },
+    "_exchange_comment": "金鑰由 secrets-live.json(不進 git)在 --config 疊加鏈中補上,見 security-policy.md 2.1 節;金鑰權限規範見該文件第 1 節(僅交易、禁止提幣)"
+}
