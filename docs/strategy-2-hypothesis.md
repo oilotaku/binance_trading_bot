@@ -1,6 +1,7 @@
 # 策略二 Phase 1 假說:波動度目標化(Volatility Targeting)
 
-> 狀態:**🔴 提案中,未核准 / PROPOSED。尚未對真實資料評估任何績效。**
+> 狀態:**✅ 假說已核准(2026-08-08)。** 但執行被 [`CP-005`](./proposals/CP-005-risk-policy-for-always-in-market.md) 阻擋:risk-policy.md 的九項風控機制有七項與「永遠在市」不相容,且 CP-004 的 30% 回撤目標與現行 15% kill switch 直接衝突。
+> **尚未對真實資料評估任何績效。**
 > 日期:2026-08-08 ｜ 提出者:quant-strategist、quant-mathematician
 > 前置:[`CP-004`](./proposals/CP-004-revised-targets.md)(已核准的兩層目標)、[`pass-b-results.md`](./pass-b-results.md)、[`ml-and-exogenous-data-assessment.md`](./proposals/ml-and-exogenous-data-assessment.md)
 
@@ -131,7 +132,7 @@
 | 文件 | 關係 |
 |---|---|
 | [`scope.md`](./scope.md) | 標的池(BTC+ETH)、現貨、無槓桿、模擬資金 —— **全部不變** |
-| [`risk-policy.md`](./risk-policy.md) | ⚠️ 需檢查:本策略永遠在市,與原本為擇時策略設計的 protections、time-stop、每日熔斷是否相容 |
+| [`risk-policy.md`](./risk-policy.md) | 🔴 **已檢查,結果是重大衝突** —— 見 [`CP-005`](./proposals/CP-005-risk-policy-for-always-in-market.md)。九項機制有七項不適用或直接衝突,其中 kill switch 15% < CP-004 目標 30%,策略永遠不可能達到它被要求達到的營運點 |
 | [`backtest-procedure.md`](./backtest-procedure.md) | 1.4 節資料品質規則不變;第 4 節的驗證流程需要新增第一層的檢查 |
 | [`statistical-methodology.md`](./statistical-methodology.md) | 第二層改用 `analysis/sharpe_difference.py` 的配對檢定,取代絕對 DSR |
 
