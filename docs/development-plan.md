@@ -221,4 +221,5 @@ This plan takes the feature requirements each of the 8 roles raised in [`stable-
 - [~] Phase 4 — 風控政策(`risk-policy.md`,草稿完成,**待您審閱確認**)
 - [~] Phase 5 — 安全政策(`security-policy.md`,草稿完成,**待您審閱確認**)
 - [~] Phase 6 — 回測框架與驗證程序(`backtest-procedure.md`,草稿完成,**待您審閱確認**)
-- [ ] Phase 7, 9 — 待進行(範圍已因 Phase 8 決策而縮小為「Freqtrade 客製化規格」)
+- [~] Phase 7 — 執行層技術規格(`execution-spec.md`,草稿完成,**待您審閱確認**)
+- [ ] Phase 9 — Go/No-Go 檢查清單(**下一步**,Phase 0-8 全部完成後的最終彙整)
