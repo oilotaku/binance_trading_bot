@@ -34,8 +34,8 @@
    持倉天數會被硬性上限鎖死在 45 天,這個預測會被人為限制到失去意義,
    Donchian 下軌自身在策略一的實測中也從未觸發過一次(post-mortem
    第 2 節)。因此本檔案採「Kalman 訊號整個取代三條路徑,而非疊加」
-   這個實作方向。這是本檔案撰寫過程中的判斷,不是既有核准文件逐字
-   交代的決定。
+   這個實作方向。**✅ 專案負責人已明確確認採「完全取代」(2026-08-16),
+   見 strategy-5-hypothesis.md 狀態列。**
 
 2. **`donchian_period` 寫成普通常數,不用 `IntParameter`。** 策略一的
    `IntParameter` 包裝是為了讓 `run_parameter_scan.py` 能透過 Freqtrade

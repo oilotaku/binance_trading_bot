@@ -1,6 +1,6 @@
 # 策略五 Phase 1 假說:以 Kalman 濾波趨勢斜率取代固定停損的出場機制
 
-> 狀態:**✅ 已核准 / APPROVED(2026-08-16)。第 6.1、6.2 節已解決([`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) 已核准,`k'=5.0`、fallback `-22%`);第 6.3 節已用 Freqtrade 原始碼排查確認(非推測)。backtest-analyst / market-economist 尚未審閱,不影響本次核准 —— 第 9 節執行順序第 4、5 步仍是碰真實資料前的必要前置工作。**
+> 狀態:**✅ 已核准 / APPROVED(2026-08-16)。第 6.1、6.2 節已解決([`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) 已核准,`k'=5.0`、fallback `-22%`);第 6.3 節已用 Freqtrade 原始碼排查確認(非推測)。第 9 節第 4、5 步的實作已完成,其中兩項關鍵判斷經專案負責人明確確認(2026-08-16):(1)Kalman 訊號**完全取代**策略一的三條出場路徑,不保留 45 天 time-stop 當安全上限;(2)配對比較檢定量維持 `paired_trade_comparison.py` 原設計(SR_trade bootstrap 為主、Wilcoxon 次要、`n_eff≥30` 門檻)。backtest-analyst / market-economist 尚未審閱,不影響本次核准。**
 > 日期:2026-08-16 ｜ 執筆:quant-strategist 角色
 > 前置:[`strategy-5-exit-mechanism-hypothesis.md`](./change-proposals/strategy-5-exit-mechanism-hypothesis.md)(✅ 已核准,含 4.1 節界線裁決與 4.2 節 `N` 認定)、[`CP-004`](./change-proposals/CP-004-revised-targets.md)(現行績效目標框架)、[`post-mortem-strategy-1.md`](./post-mortem-strategy-1.md)(診斷來源)、[`pass-b-results.md`](./pass-b-results.md)(策略一正式判定)、[`CP-003`](./change-proposals/CP-003-fixed-parameters.md)(進場參數固定值)、[`risk-policy.md`](./risk-policy.md)
 > 分級:**新策略假說**,依提案 4.1 節裁決,需走完整 Phase 1 → Phase 6 流程,`N` 從 1 重新累計(不在策略一的 `N=5` 上累加)
