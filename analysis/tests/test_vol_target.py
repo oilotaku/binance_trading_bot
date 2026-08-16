@@ -10,13 +10,15 @@ from analysis import vol_target as vt
 
 
 def test_governance_constants_are_pinned():
-    """CP-004/CP-005 定案的數字。任何改動都必須明確改測試,不能悄悄調。"""
+    """CP-004/CP-005/CP-007 定案的數字。任何改動都必須明確改測試,不能悄悄調。"""
     assert vt.W == 20
-    assert vt.SIGMA_TARGET == 0.123   # CP-006 修正(原 0.25)
+    assert vt.SIGMA_TARGET == 0.1115  # CP-007 修正(原 0.123 漏了凸性/Jensen 不等式)
     assert vt.DD_LOOKBACK == 365      # CP-006 選項 A
     assert vt.MAX_EXPOSURE == 0.80
     assert vt.REBALANCE_BAND == 0.20
     assert (vt.DD_RAMP_START, vt.DD_RAMP_END) == (0.30, 0.40)
+    assert vt.CALIBRATION_END == "2020-07-27"  # CP-007 6.2 節
+    assert vt.EMBARGO_DAYS == 20               # CP-007 6.2 節
 
 
 @pytest.mark.parametrize("dd,expected", [

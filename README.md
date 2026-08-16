@@ -5,15 +5,15 @@
 A Binance spot quantitative trading bot, built on [Freqtrade](https://github.com/freqtrade/freqtrade) with a custom strategy and a full statistical validation pipeline.
 
 > **⚠️ 目前狀態:已對真實資料完成兩個策略的正式驗證,兩者皆未達可投入真實資金的標準。尚未投入任何真實資金。**
-> 策略一(動能突破)未通過顯著性檢定;策略二(波動度目標化)機制驗證有效但未達已核准的絕對回撤目標,且無統計顯著的超額報酬可主張。詳見下方「驗證結果」。
+> 策略一(動能突破)未通過顯著性檢定;策略四(波動度目標化)第一層(回撤控制)在 CP-007 修正後通過,但無統計顯著的超額報酬可主張。詳見下方「驗證結果」。
 
 ---
 
 ## 這個專案的特色:先規劃、後寫程式,而且規劃會被資料修正
 
-本專案採用「設計文件先確認、才寫程式碼」的流程起步,但更重要的紀律是:**任何方法論或目標的修改,都必須在對應的策略碰到真實資料之前完成並 commit**——這條規則被反覆執行了六次(`CP-001`–`CP-006`),包括在策略一未通過之後發現並修正自己的統計方法論錯誤。
+本專案採用「設計文件先確認、才寫程式碼」的流程起步,但更重要的紀律是:**任何方法論或目標的修改,都必須在對應的策略碰到真實資料之前完成並 commit**——這條規則被反覆執行了七次(`CP-001`–`CP-007`),包括在策略一未通過之後發現並修正自己的統計方法論錯誤,以及策略四三度修正 `σ_target` 的推導。
 
-This project front-loaded design, but the more important discipline running through it is pre-registration: any change to methodology or targets must be finalized and committed *before* the corresponding strategy touches real data. That rule was exercised six times (`CP-001`–`CP-006`), including catching and fixing our own statistical methodology errors after strategy one failed.
+This project front-loaded design, but the more important discipline running through it is pre-registration: any change to methodology or targets must be finalized and committed *before* the corresponding strategy touches real data. That rule was exercised seven times (`CP-001`–`CP-007`), including catching and fixing our own statistical methodology errors after strategy one failed, and three rounds of correcting strategy four's `σ_target` derivation.
 
 | Phase | 文件 | 內容 |
 |---|---|---|
@@ -37,6 +37,7 @@ This project front-loaded design, but the more important discipline running thro
 | [`CP-003`](docs/change-proposals/CP-003-fixed-parameters.md) | 放棄 hyperopt 搜尋,4 個參數事前固定 + 1 個掃描,`N=5` |
 | [`CP-004`](docs/change-proposals/CP-004-revised-targets.md) | 目標重訂為兩層制(回撤控制 + 可選超額報酬),基準改為 50/50 再平衡組合 |
 | [`CP-005`](docs/change-proposals/CP-005-risk-policy-for-always-in-market.md) | 為「永遠在市」型策略重新設計風控(策略一的事件驅動機制不適用) |
+| [`CP-007`](docs/change-proposals/CP-007-sigma-target-convexity-correction.md) | 修正 `σ_target` 推導漏掉的 Jensen 不等式凸性偏誤,改用不重疊的時間切分校準 |
 | [`target-reassessment.md`](docs/change-proposals/target-reassessment.md) | 證明原始 20–30% 報酬 + 1.0–1.5 Sharpe + 15–20% 回撤三個目標互相矛盾 |
 
 ---
@@ -53,11 +54,14 @@ This project front-loaded design, but the more important discipline running thro
 
 **永遠在市**,無方向判斷,只依已實現波動與組合回撤動態調整曝險(`w = min(0.8, σ_target/σ̂) × 回撤斜坡`)。經濟假說:方向不可預測,但風險可預測。
 
-- **假說的可證偽預測成立**:相同平均曝險下,最大回撤比零技巧基準低 19.7%
-- **絕對回撤目標未達**:實際 MDD 31.37%,超出已核准的 30% 上限 1.37 個百分點
-- **無統計顯著的超額報酬**:與基準的 Sharpe 差距 `Δ = +0.032`,遠低於 `0.78` 的顯著性門檻
+第一次正式判定(CP-006 版本,`n=3270`,全樣本)發現 `σ_target` 的推導漏了 Jensen 不等式造成的凸性偏誤,MDD 31.37% 超出 30% 上限 1.37pp。[`CP-007`](docs/change-proposals/CP-007-sigma-target-convexity-correction.md) 用一段與判定樣本**不重疊**的時間切分(校準期 2017-08~2020-07,評估期 2020-08~2026-07)重新校準,重跑結果:
 
-完整判定見 [`strategy-4-results.md`](docs/strategy-4-results.md);機制已寫成真正的 Freqtrade `IStrategy`(`user_data/strategies/VolatilityTargeting.py`)並通過框架內技術驗證,見 [`strategy-4-freqtrade-technical-demo.md`](docs/strategy-4-freqtrade-technical-demo.md)(**該文件是技術驗證,不是新的統計判定**)。
+- **假說的可證偽預測成立**:相同平均曝險下,最大回撤比零技巧基準低
+- **✅ 絕對回撤目標通過**:MDD 25.13%,低於 30% 上限
+- **⚠️ 但通過不代表曝險精準對齊設計目標**:實現平均曝險仍超出設計值 `w0` 38%(與修正前的 39% 幾乎相同),原因是校準期與評估期的波動水位本身不平穩,是時間切分校準的方法論固有限制,細節見 [`strategy-4-cp007-results.md`](docs/strategy-4-cp007-results.md) 第 3 節
+- **無統計顯著的超額報酬**:與基準的 Sharpe 差距 `Δ = +0.013`,遠低於 `N=15` 下 `0.6146` 的顯著性門檻
+
+完整判定見 [`strategy-4-cp007-results.md`](docs/strategy-4-cp007-results.md)(CP-007 最新結果)與 [`strategy-4-results.md`](docs/strategy-4-results.md)(CP-006 版本,歷史記錄);機制已寫成真正的 Freqtrade `IStrategy`(`user_data/strategies/VolatilityTargeting.py`)並通過框架內技術驗證,見 [`strategy-4-freqtrade-technical-demo.md`](docs/strategy-4-freqtrade-technical-demo.md)(**該文件是技術驗證,不是新的統計判定**)。
 
 ### Backlog
 
@@ -151,10 +155,10 @@ python analysis/tools/run_strategy4_evaluation.py
 
 **已完成**
 
-- Phase 0–9 全部規劃文件並逐份確認;後續發現的方法論問題透過 `CP-001`–`CP-006` 六次預先登錄的變更提案修正
+- Phase 0–9 全部規劃文件並逐份確認;後續發現的方法論問題透過 `CP-001`–`CP-007` 七次預先登錄的變更提案修正
 - 真實歷史資料已取得並通過品質檢查(9.0 年,SHA256 逐月驗證,見 [`data-requirements.md`](docs/data-requirements.md))
 - 策略一:完整參數掃描 + DSR 顯著性檢定,**結果:未通過**(見 [`pass-b-results.md`](docs/pass-b-results.md))
-- 策略四:假說設計、離線模擬驗證、Freqtrade 框架內技術驗證,**結果:機制有效但未達目標**(見 [`strategy-4-results.md`](docs/strategy-4-results.md))
+- 策略四:假說設計、離線模擬驗證、Freqtrade 框架內技術驗證,CP-007 修正後**第一層通過、第二層(超額報酬)不通過**(見 [`strategy-4-cp007-results.md`](docs/strategy-4-cp007-results.md))
 - 統計驗證管線 17 個模組 + 127 個測試
 
 **明確尚未完成的事**

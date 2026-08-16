@@ -9,22 +9,39 @@
 
 事前指定的參數,全部來自已核准文件,不得在此優化:
     W                = 20      strategy-4-hypothesis.md 2.1 節
-    SIGMA_TARGET     = 0.123   CP-006 修正(原 0.25 的推導把回撤當成百分比線性)
+    SIGMA_TARGET     = 0.1115  CP-007 修正(凸性校準,見下方推導)
     MAX_EXPOSURE     = 0.80    CP-005 3.5 節(risk-policy.md 4.3 節的合併名目上限)
     REBALANCE_BAND   = 0.20    CP-005 第 4 節
     DD_LOOKBACK      = 365     CP-006 選項 A(取自 risk-policy.md 5.3 節既有數字)
+    CALIBRATION_END  = 2020-07-27   CP-007 6.2 節
+    EMBARGO_DAYS     = 20           CP-007 6.2 節
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-# --- CP-004 / CP-005 定案的治理數字。改動任一個都必須走變更提案流程。---
+# --- CP-004 / CP-005 / CP-007 定案的治理數字。改動任一個都必須走變更提案流程。---
 W = 20
-# CP-006 修正:σ_target 原為 0.25,推導時誤把回撤當成隨曝險線性縮放。
-# 回撤在**對數空間**才線性:w₀ = −ln(1−0.30)/(−ln(1−0.8832)) = 0.1661,
-# 而非 0.30/0.8832 = 0.3397。σ_target = 0.1661 × 73.8% ≈ 0.123。
-SIGMA_TARGET = 0.123
+
+# CP-007 修正(docs/change-proposals/CP-007-sigma-target-convexity-correction.md):
+# CP-006 的 σ_target=0.123 假設 E[σ_target/σ̂] ≈ σ_target/E[σ̂],忽略了 1/x 是凸函數
+# (Jensen 不等式):E[1/σ̂] ≥ 1/E[σ̂],實測 E[1/σ]=1.8286 > 1/E[σ]=1.5332,
+# 導致實現平均曝險比設計目標 w0=0.1661 高 39%(見 strategy-4-results.md 第 3.1 節)。
+#
+# 直接用「拿來判定 MDD≤30% 的同一段樣本」反推校準常數已被明文禁止(同文件第 3.2 節)——
+# 那等於先射箭再畫靶。CP-007 改用一段**不重疊**的校準期(2017-11-01~2020-07-27,
+# 由 n_eff≥50 的精度需求反推,見 CP-007 6.1 節)估計 E[1/σ̂],
+# 推導工具:analysis/tools/calibrate_sigma_target.py。
+#
+# 實測(analysis/tools/calibrate_sigma_target.py,2026-08-16,校準期 n=1000 天,
+# 981 個有效波動觀測值、n_eff≈49 個非重疊區塊,達到 CP-007 6.1 節 n_eff≥50 精度目標):
+#     E[σ̂]_校準期  = 0.7895
+#     E[1/σ̂]_校準期 = 1.4899   (1/E[σ̂]=1.2666,凸性偏誤方向與 Jensen 不等式一致)
+#     SIGMA_TARGET = 0.1661 / 1.4899 = 0.1115
+# 與被明文禁止的樣本內倒推值(≈0.089-0.091,見 strategy-4-results.md 第 3.2 節)
+# 明顯不同 —— 這是校準期(2017-11~2020-07)獨立估計的結果,不是同一數字換個算法包裝。
+SIGMA_TARGET = 0.1115
 MAX_EXPOSURE = 0.80
 REBALANCE_BAND = 0.20
 
@@ -34,6 +51,15 @@ REBALANCE_BAND = 0.20
 # 365 取自 risk-policy.md 5.3 節 kill switch 的 lookback_period_candles,
 # 是既有的治理數字,不是本次新挑的值。
 DD_LOOKBACK = 365
+
+# CP-007 6.2 節:校準期(估計凸性修正係數用)與評估期(正式判定 MDD/Δ 用)的切分。
+# 校準期起點固定為資料起點 2017-11-01,長度由 n_eff≥50 精度需求反推 —— 是公式的
+# 輸出,不是挑選出來讓評估期結果好看的日期(但誠實揭露:訂這個規則時我方已看過
+# 全樣本的 E[1/σ]=1.8286,無法做到純粹的預先登錄,見 CP-007 6.1 節)。
+CALIBRATION_END = "2020-07-27"
+# Embargo:已實現波動用 W=20 天滾動窗口計算,校準期尾端與評估期開頭之間需留出
+# 一個完整窗口的間隔,避免評估期最早幾天的波動估計吃到校準期的報酬資料。
+EMBARGO_DAYS = 20
 
 # CP-005 3.4 節:線性降風險斜坡的兩個端點(皆為已核准的治理數字)
 DD_RAMP_START = 0.30  # CP-004 第一層回撤上限

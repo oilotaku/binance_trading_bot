@@ -25,3 +25,25 @@
 - 缺漏日數:0(孤立 0、連續區段 0)
 - 疑似異常 K 棒:0
 - 說明:data.binance.vision 月封存(2017-08~2026-07),逐檔 SHA256 對照官方 .CHECKSUM 通過
+
+---
+
+## BTC/USDT — 匯入於 2026-08-16 03:02 UTC
+
+- 來源檔:`C:\Users\f2000\AppData\Local\Temp\claude\d--binance-trading-bot\fa89395a-f1d8-4ddd-97f2-51e9fc52a72c\scratchpad\BTCUSDT-1d.csv`
+- K 棒數:3271
+- 涵蓋範圍:2017-08-17 ~ 2026-07-31
+- 缺漏日數:0(孤立 0、連續區段 0)
+- 疑似異常 K 棒:0
+- 說明:CP-007 重跑準備:重新下載匯入以取得校準期(2017-11~2020-07)資料
+
+---
+
+## ETH/USDT — 匯入於 2026-08-16 03:03 UTC
+
+- 來源檔:`C:\Users\f2000\AppData\Local\Temp\claude\d--binance-trading-bot\fa89395a-f1d8-4ddd-97f2-51e9fc52a72c\scratchpad\ETHUSDT-1d.csv`
+- K 棒數:3271
+- 涵蓋範圍:2017-08-17 ~ 2026-07-31
+- 缺漏日數:0(孤立 0、連續區段 0)
+- 疑似異常 K 棒:0
+- 說明:CP-007 重跑準備:重新下載匯入以取得校準期(2017-11~2020-07)資料
