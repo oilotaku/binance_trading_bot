@@ -249,8 +249,8 @@
 1. 本文件核准 → commit
 2. ~~解決第 6.1/6.2 節風險~~ → **已完成(2026-08-16,[`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) 已核准):災難後備停損 `-22%`、position sizing `k'=5.0`,均用真實資料推導 → commit**
 3. ~~排查第 6.3 節風險~~ → **已排查完成(2026-08-16,見 6.3 節):`StoplossGuard` 確認偵測不到斜率觸發的出場事件,`MaxDrawdown` 不受影響。待做:在 Phase 6 實作規格中補上等效的「頻率型連續虧損守門」(比照 risk-policy.md 3.4 節模式,寫在 `confirm_trade_entry`)→ commit**
-4. 推導並實作第 3.4 節「配對比較 vs 策略一」的顯著性檢定方法(比照 `analysis/sharpe_difference.py` 的模式)→ commit
-5. 依 [`CP-003`](./change-proposals/CP-003-fixed-parameters.md) 的模式,把第 4 節的參數表與第 6.3 節的連續虧損守門寫入策略程式碼(`donchian_period`、`cutoff_period_days` 等全部寫死,`optimize=False`)→ commit
+4. ~~推導並實作第 3.4 節「配對比較 vs 策略一」的顯著性檢定方法~~ → **已完成(2026-08-16):[`analysis/paired_trade_comparison.py`](../analysis/paired_trade_comparison.py),10 項合成資料測試通過。主決策統計量選定「配對 SR_trade 差異」的 studentized 循環區塊 bootstrap(直接重用 `sharpe_difference.py` 的推導,換比較軸不換公式),Wilcoxon 降為次要診斷;`N=10` 直接重用 `minimum_detectable_difference()`。撰寫過程中新增一項未明文交代的判斷:`passes` 判定額外套用 `n_eff≥30`(重用 statistical-methodology.md §4.4 既有下限),建議一併確認 → commit**
+5. ~~把第 4 節的參數表與第 6.3 節的連續虧損守門寫入策略程式碼~~ → **已完成(2026-08-16):[`user_data/strategies/TrendFilterExit.py`](../user_data/strategies/TrendFilterExit.py),已用 Freqtrade `StrategyResolver` 驗證可正確載入。撰寫過程中做了 5 項實作階段判斷(移除 Donchian 下軌與 45 天 time-stop、`donchian_period` 改為普通常數、`_risk_fraction_of_trade` 改用即時 ATR 而非 `trade.stop_loss`、`use_exit_signal` 必須為 `True`、連續虧損守門的鎖倉語意比照原生 `calculate_lock_end`),全部詳列於檔案頂部 docstring,建議核准本檔案前逐項確認 → commit**
 6. **以上全部 commit 完成後**,才對真實 BTC/ETH 資料執行第 3 節 (a)(b) 兩項比較;SOL/BNB 佐證用資料若尚未取得,依 [`backtest-procedure.md`](./backtest-procedure.md) 1.4 節品質檢查流程取得並記錄校驗和
 7. 執行完成後,結果交由 backtest-analyst 依 CP-004 與本文件第 3 節判定,不得依結果回頭調整第 4 節已固定的參數
 
