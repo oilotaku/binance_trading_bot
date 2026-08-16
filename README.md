@@ -4,16 +4,16 @@
 
 A Binance spot quantitative trading bot, built on [Freqtrade](https://github.com/freqtrade/freqtrade) with a custom strategy and a full statistical validation pipeline.
 
-> **⚠️ 目前狀態:已對真實資料完成兩個策略的正式驗證,兩者皆未達可投入真實資金的標準。尚未投入任何真實資金。**
-> 策略一(動能突破)未通過顯著性檢定;策略四(波動度目標化)第一層(回撤控制)在 CP-007 修正後通過,但無統計顯著的超額報酬可主張。詳見下方「驗證結果」。
+> **⚠️ 目前狀態:已對真實資料完成三個策略的正式驗證,皆未達可投入真實資金的標準。尚未投入任何真實資金。**
+> 策略一(動能突破)未通過顯著性檢定;策略四(波動度目標化)、策略五(趨勢濾波出場)第一層(回撤控制)通過,但均無統計顯著的超額報酬可主張。詳見下方「驗證結果」。
 
 ---
 
 ## 這個專案的特色:先規劃、後寫程式,而且規劃會被資料修正
 
-本專案採用「設計文件先確認、才寫程式碼」的流程起步,但更重要的紀律是:**任何方法論或目標的修改,都必須在對應的策略碰到真實資料之前完成並 commit**——這條規則被反覆執行了七次(`CP-001`–`CP-007`),包括在策略一未通過之後發現並修正自己的統計方法論錯誤,以及策略四三度修正 `σ_target` 的推導。
+本專案採用「設計文件先確認、才寫程式碼」的流程起步,但更重要的紀律是:**任何方法論或目標的修改,都必須在對應的策略碰到真實資料之前完成並 commit**——這條規則被反覆執行了八次(`CP-001`–`CP-008`),包括在策略一未通過之後發現並修正自己的統計方法論錯誤、策略四三度修正 `σ_target` 的推導,以及策略五為新出場機制重新校準風控核心數字。
 
-This project front-loaded design, but the more important discipline running through it is pre-registration: any change to methodology or targets must be finalized and committed *before* the corresponding strategy touches real data. That rule was exercised seven times (`CP-001`–`CP-007`), including catching and fixing our own statistical methodology errors after strategy one failed, and three rounds of correcting strategy four's `σ_target` derivation.
+This project front-loaded design, but the more important discipline running through it is pre-registration: any change to methodology or targets must be finalized and committed *before* the corresponding strategy touches real data. That rule was exercised eight times (`CP-001`–`CP-008`), including catching and fixing our own statistical methodology errors after strategy one failed, three rounds of correcting strategy four's `σ_target` derivation, and recalibrating core risk parameters for strategy five's new exit mechanism.
 
 | Phase | 文件 | 內容 |
 |---|---|---|
@@ -38,6 +38,7 @@ This project front-loaded design, but the more important discipline running thro
 | [`CP-004`](docs/change-proposals/CP-004-revised-targets.md) | 目標重訂為兩層制(回撤控制 + 可選超額報酬),基準改為 50/50 再平衡組合 |
 | [`CP-005`](docs/change-proposals/CP-005-risk-policy-for-always-in-market.md) | 為「永遠在市」型策略重新設計風控(策略一的事件驅動機制不適用) |
 | [`CP-007`](docs/change-proposals/CP-007-sigma-target-convexity-correction.md) | 修正 `σ_target` 推導漏掉的 Jensen 不等式凸性偏誤,改用不重疊的時間切分校準 |
+| [`CP-008`](docs/change-proposals/CP-008-strategy-5-backstop-and-sizing.md) | 策略五用真實資料重新校準災難後備停損(`-25%→-22%`)與 position sizing 係數(`k=3.0→k'=5.0`) |
 | [`target-reassessment.md`](docs/change-proposals/target-reassessment.md) | 證明原始 20–30% 報酬 + 1.0–1.5 Sharpe + 15–20% 回撤三個目標互相矛盾 |
 
 ---
@@ -63,9 +64,20 @@ This project front-loaded design, but the more important discipline running thro
 
 完整判定見 [`strategy-4-cp007-results.md`](docs/strategy-4-cp007-results.md)(CP-007 最新結果)與 [`strategy-4-results.md`](docs/strategy-4-results.md)(CP-006 版本,歷史記錄);機制已寫成真正的 Freqtrade `IStrategy`(`user_data/strategies/VolatilityTargeting.py`)並通過框架內技術驗證,見 [`strategy-4-freqtrade-technical-demo.md`](docs/strategy-4-freqtrade-technical-demo.md)(**該文件是技術驗證,不是新的統計判定**)。
 
+### 策略五:以 Kalman 濾波趨勢斜率取代固定停損的出場機制 — ⚠️ 混合結果
+
+進場邏輯與策略一完全相同(Donchian 突破 + 成交量確認),**只換出場機制**:用平滑趨勢狀態空間模型的 Kalman 濾波,以斜率後驗的符號(`μ̂_t<0`)判定出場,取代策略一的固定 `k×ATR` 移動停損。經濟假說:回撤不是判斷「趨勢是否仍在持續」的充分統計量,整條路徑的濾波後斜率才是。
+
+- **✅ 第一層通過**:MDD 8.18%(基準 88.32%),保留報酬比 18.2% vs 零技巧基準所需 16.6%
+- **❌ 第二層不通過**:`Δ=+0.52`,遠低於 `N=10` 門檻 `1.13`
+- **❌ 核心因果檢定(配對比較 vs 策略一本身)不通過**:`delta=0.020`,只有門檻 `0.304` 的 6.7%
+- **⚠️ 全樣本可證偽預測(持倉天數/賺賠比/`SR_trade`)字面上全部成立,但這個結論被進場點分岔(兩策略出場時間不同,實際進場點集合分岔達 25%)嚴重削弱**——控制進場點組成後(配對比較),效應的統計顯著性消失,這才是更可信的答案
+
+完整判定見 [`strategy-5-results.md`](docs/strategy-5-results.md);風控核心數字(災難後備停損、position sizing)的重新校準見 [`CP-008`](docs/change-proposals/CP-008-strategy-5-backstop-and-sizing.md);機制已寫成真正的 Freqtrade `IStrategy`(`user_data/strategies/TrendFilterExit.py`)。
+
 ### Backlog
 
-策略二(流動性衝擊均值回歸)、策略三(跨資產相對強度輪動)、策略五(趨勢濾波出場機制,[`change-proposals/strategy-5-exit-mechanism-hypothesis.md`](docs/change-proposals/strategy-5-exit-mechanism-hypothesis.md))尚未評估,見 [`strategy-hypothesis.md`](docs/strategy-hypothesis.md)。
+策略二(流動性衝擊均值回歸)、策略三(跨資產相對強度輪動)尚未評估,見 [`strategy-hypothesis.md`](docs/strategy-hypothesis.md)。
 
 ---
 
@@ -155,16 +167,17 @@ python analysis/tools/run_strategy4_evaluation.py
 
 **已完成**
 
-- Phase 0–9 全部規劃文件並逐份確認;後續發現的方法論問題透過 `CP-001`–`CP-007` 七次預先登錄的變更提案修正
+- Phase 0–9 全部規劃文件並逐份確認;後續發現的方法論問題透過 `CP-001`–`CP-008` 八次預先登錄的變更提案修正
 - 真實歷史資料已取得並通過品質檢查(9.0 年,SHA256 逐月驗證,見 [`data-requirements.md`](docs/data-requirements.md))
 - 策略一:完整參數掃描 + DSR 顯著性檢定,**結果:未通過**(見 [`pass-b-results.md`](docs/pass-b-results.md))
 - 策略四:假說設計、離線模擬驗證、Freqtrade 框架內技術驗證,CP-007 修正後**第一層通過、第二層(超額報酬)不通過**(見 [`strategy-4-cp007-results.md`](docs/strategy-4-cp007-results.md))
-- 統計驗證管線 17 個模組 + 127 個測試
+- 策略五:假說設計、風控重新校準(CP-008)、Freqtrade 實作、對真實資料正式判定,**第一層通過、第二層與核心因果檢定(配對比較)均不通過**(見 [`strategy-5-results.md`](docs/strategy-5-results.md))
+- 統計驗證管線 18 個模組 + 137 個測試
 
 **明確尚未完成的事**
 
-- 策略二、三、五仍在 backlog,未進入驗證
-- 兩個已測試策略均未達到可投入真實資金(即使是模擬資金的 paper trading 正式階段)的標準,見 [`backtest-procedure.md`](docs/backtest-procedure.md) 7.1 節的資格條件
+- 策略二、三仍在 backlog,未進入驗證
+- 三個已測試策略均未達到可投入真實資金(即使是模擬資金的 paper trading 正式階段)的標準,見 [`backtest-procedure.md`](docs/backtest-procedure.md) 7.1 節的資格條件
 - 即時 dry-run / paper trading 尚未執行——本環境的出口網路對 Binance 即時 API(含 Testnet)有地區限制,技術驗證改用 Freqtrade backtesting 引擎完成(見 [`strategy-4-freqtrade-technical-demo.md`](docs/strategy-4-freqtrade-technical-demo.md))
 
 ---
