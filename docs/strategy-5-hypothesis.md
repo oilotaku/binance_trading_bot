@@ -1,6 +1,6 @@
 # 策略五 Phase 1 假說:以 Kalman 濾波趨勢斜率取代固定停損的出場機制
 
-> 狀態:**✅ 已核准 / APPROVED(2026-08-16)。第 6.1、6.2 節已經 risk-manager 審閱;第 6.3 節已用 Freqtrade 原始碼排查確認(非推測)。backtest-analyst / market-economist 尚未審閱,不影響本次核准 —— 第 9 節執行順序第 2、4、5 步仍是碰真實資料前的必要前置工作。**
+> 狀態:**✅ 已核准 / APPROVED(2026-08-16)。第 6.1、6.2 節已解決([`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) 已核准,`k'=5.0`、fallback `-22%`);第 6.3 節已用 Freqtrade 原始碼排查確認(非推測)。backtest-analyst / market-economist 尚未審閱,不影響本次核准 —— 第 9 節執行順序第 4、5 步仍是碰真實資料前的必要前置工作。**
 > 日期:2026-08-16 ｜ 執筆:quant-strategist 角色
 > 前置:[`strategy-5-exit-mechanism-hypothesis.md`](./change-proposals/strategy-5-exit-mechanism-hypothesis.md)(✅ 已核准,含 4.1 節界線裁決與 4.2 節 `N` 認定)、[`CP-004`](./change-proposals/CP-004-revised-targets.md)(現行績效目標框架)、[`post-mortem-strategy-1.md`](./post-mortem-strategy-1.md)(診斷來源)、[`pass-b-results.md`](./pass-b-results.md)(策略一正式判定)、[`CP-003`](./change-proposals/CP-003-fixed-parameters.md)(進場參數固定值)、[`risk-policy.md`](./risk-policy.md)
 > 分級:**新策略假說**,依提案 4.1 節裁決,需走完整 Phase 1 → Phase 6 流程,`N` 從 1 重新累計(不在策略一的 `N=5` 上累加)
@@ -105,11 +105,11 @@
 | `donchian_period` | **20** | [`pass-b-results.md`](./pass-b-results.md) 主檢定點(CP-003 掃描 5 點之一) | 不重新掃描,理由見 4.1 節 |
 | `volume_ma_period` | **20** | [`CP-003`](./change-proposals/CP-003-fixed-parameters.md) §2.1 | 進場邏輯不變,原樣繼承 |
 | `volume_multiplier` | **1.5** | [`CP-003`](./change-proposals/CP-003-fixed-parameters.md) §2.1 | 進場邏輯不變,原樣繼承;CP-003 已誠實揭露這是四個固定值中依據最弱的一個 |
-| `atr_period` | **14** | [`CP-003`](./change-proposals/CP-003-fixed-parameters.md) §2.1(Wilder 1978) | ⚠️ 用途未定,見 4.2 節與第 6 節風險 1 |
-| `atr_multiplier`(原 `k=3.0`) | **停用,不再作為出場判準** | [`risk-policy.md`](./risk-policy.md) §2.1 原定案 | 本假說的核心變更;是否仍需作為 position sizing 的替代停損距離代理值,待 risk-manager 決定(見第 6 節風險 1,核心治理數字,須走 CP 流程) |
+| `atr_period` | **14** | [`CP-003`](./change-proposals/CP-003-fixed-parameters.md) §2.1(Wilder 1978) | 用途已定案:position sizing 分母的 ATR 來源,見 `k'` |
+| `atr_multiplier` `k'`(取代原 `k=3.0`) | **5.0** | [`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) §4.2,用真實 MAE%/ATR14% 比值(p90-p95)校準 | 不再作為出場判準,改為 position sizing 分母的係數;`risk-policy.md` §4.3 名目部位上限(單筆≤50%/合併≤80%)原樣保留 |
 | `cutoff_period_days`(`p`) | **45** | [`risk-policy.md`](./risk-policy.md) §2.3(原為 45 天 time-stop 的定案) | 借用,非原始決策本意——提案 §2.3 已誠實揭露此借用的性質 |
 | `θ`(斜率後驗機率門檻) | **0.5**(等價於 `μ̂_t < 0`) | 提案 §2.2 | 選 0.5 是為了不引入額外自由參數且維持尺度不變,不是掃描得出 |
-| 災難後備停損(fallback `stoploss`) | **-25%(暫定不變)** | [`risk-policy.md`](./risk-policy.md) §2.1 | ⚠️ 提案 §5 風險 2 已標記可能需要收緊;屬核心治理數字,若調整須走 CP 流程,本文件不預先變更 |
+| 災難後備停損(fallback `stoploss`) | **-22%**(取代 `risk-policy.md` 原 `-25%`) | [`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) §4.1,用真實崩盤情境壓力測試校準 | 僅適用於策略五,不變動策略一現行 `-25%` |
 
 ### 4.1 為什麼 `donchian_period` 固定在 20,不重新掃描 5 個點
 
@@ -182,13 +182,15 @@
 - (a) 用某個替代的「預期停損距離」代理值(例如仍用 `atr_period=14` 算出的 ATR,乘上一個新的、與 Kalman 無關的名目係數)作為 sizing 公式的分母——但這個係數該怎麼定需要新的論證,不能悄悄沿用舊的 `k=3.0`;或
 - (b) 改用一個完全不依賴停損距離的 sizing 方法(例如固定名目部位比例,或以歷史 MAE 分布的某個分位數作為風險預算單位)。
 
-**risk-manager 審閱意見(2026-08-16):** 若沿用舊公式的分母卻換掉出場機制,`risk_fraction=1.5%` 只是名目標籤,實際美元風險會被放大。粗算:若真實出場落在收緊後的災難後備停損附近(見 6.2 節,方向估計 -15%)而非 `k=3, ATR%=3%` 對應的 9%,單筆最壞情況美元風險會膨脹到約 `1.5% × (15%/9%) ≈ 2.5%`——超過現行 1.5% 硬上限近 70%,足以讓 [`risk-policy.md`](./risk-policy.md) 第 1 節「6 筆連續虧損觸發月回撤熔斷」的推導表整個失效(門檻會被更少的連續虧損筆數撞破)。**這與本節的架構缺口是同一個問題的兩面,獨立分析後互相驗證。** 需要的調整:sizing 公式分母必須改用「策略五實際可能發生的最大不利偏移」(建議是收緊後的災難後備停損距離),或明確承認 `risk_fraction` 只是「典型情境」風險預算、另用最壞情況百分比重跑連續虧損表,確認 8%/15%/20% 三條回撤紅線仍被合理保護。**這兩件事應包在同一個 CP 裡處理,不能分開拍板。**
+**✅ 已解決(2026-08-16,[`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) 已核准):** 採方向 (a),用真實 BTC/ETH 資料校準出 `k'=5.0`(取代 `k=3.0`),公式結構不變。用新公式重跑連續虧損推導,8%/15%/20% 三條回撤紅線在 p95 情境下幾乎完全還原原表保護力(6/11/15 筆);若採最壞情境重複發生的保守假設則降到 4/8/11 筆,已在 CP-008 誠實揭露。完整推導見 CP-008 第 4.2、5 節。
 
 ### 6.2 🔴 沒有硬性下檔保護,災難後備停損可能不足(**核心治理數字,須走 CP 流程**)
 
 斜率轉負可能來得比崩盤慢。`-25%` 的 fallback 目前是為策略一設計的「理論上不該被觸及」的最後防線;策略五因為偵測延遲,觸及這個防線的機率可能不再只是理論上的。是否收緊、收緊到多少,屬於 [`risk-policy.md`](./risk-policy.md) 已定案的核心治理數字,依 `CLAUDE.md` 規定必須走 CP 流程。**本文件的立場是:在 CP 核准新數字之前,`-25%` 維持不變,即使日後認為它可能不夠保守。**
 
-**risk-manager 審閱意見(2026-08-16):**「理論上不該被觸及的保險」這個角色在策略五下已經不成立——沒有機制保證出場前的價格偏移小於 25%,提案第 3 節「反轉後 60 根內偵測到」是合成資料上的通過門檻,不是真實延遲分佈的估計,更不是崩盤情境(跳躍式反轉)下的延遲估計。用 `σ_day≈4%` 粗估,60 個交易日的持續不利波動量級上可能超過 -25%(參考真實案例:2020/3 COVID 崩盤 BTC 兩天內 -50%、2022/11 FTX 事件數日內 -25%,遠快於任何斜率濾波器能反應的時間尺度)。**初步方向估計應收緊到 -12%~-18% 區間**(貼近策略一 `k×ATR` 的實際運作範圍),但這只是方向感,不是可拍板的數字——需要用真實 BTC/ETH 歷史資料量測「已知趨勢反轉事件」到「斜率轉負」的實際天數分佈(不只是合成資料的 60 根上界),並疊加歷史崩盤情境(急跌型 vs. 緩跌型)做壓力測試,才能定出有依據的收緊值。**這項分析須在對真實資料執行第 3 節 (a)(b) 兩項正式比較之前完成**(否則等於一邊拿舊風控參數保護一個它從未被設計來保護的新出場機制執行回測,一邊還沒決定新參數該是多少)。
+**risk-manager 初步審閱意見(2026-08-16):**「理論上不該被觸及的保險」這個角色在策略五下已經不成立,初步方向估計應收緊到 -12%~-18% 區間(用 `σ_day≈4%` 粗估外推)。
+
+**✅ 已用真實資料重新推導並解決(2026-08-16,[`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) 已核准):最終數字是 `-22%`,不是上面的初步估計。** 用真實 BTC/ETH 資料量測 130 個「上升 regime→斜率轉負」事件的 MAE 分佈後發現:**-12%~-18% 這個初步估計是錯的**——會讓 19%~50% 的「Kalman 訊號最終確實正確判斷出反轉」的事件提前觸發,等於把 fallback 悄悄變成日常運作中的主要出場路徑,重演策略五想取代的固定停損問題。`-22%` 是「0 次錯殺仍然有效趨勢」與「不會寬到連 2022 FTX 崩盤都接不住」之間的甜蜜點,對 2021-05 ETH 清算瀑布(真實 MAE 41.56%)提供實質保護。完整推導、崩盤情境壓力測試(2018 熊市/2020 COVID/2021-05/2022 FTX)、誤殺風險驗證見 CP-008 第 2、3、4.1 節。**這個修正本身值得記錄:沒有真實資料支撐的方向性估計,即使論證合理,也可能出錯。**
 
 ### 6.3 🔴 `StoplossGuard` 熔斷器偵測不到斜率觸發的出場事件(**已用 Freqtrade 原始碼證實,非推測**)
 
@@ -210,9 +212,9 @@
 
 持倉更長、交易更少 → `n_eff` 更低 → 門檻更高。第 5.2 節的表格已把這個效應納入,不是新增的風險。
 
-### 6.6 🟡 `atr_period=14` 用途未定(與 6.1 節一併處理)
+### 6.6 🟢 `atr_period=14` 用途已定案(與 6.1 節一併解決)
 
-若 `risk-manager` 選擇 6.1 節方案 (a),`atr_period` 仍會被使用;若選擇方案 (b),它可能變成死碼。**應與風險 6.1 一併決定,不要重蹈策略一「`populate_exit_trend` 死碼」的覆轍**([`post-mortem-strategy-1.md`](./post-mortem-strategy-1.md) §5.1 已明確點名過這個問題一次)。
+✅ [`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) 選擇方案 (a),`atr_period=14` 繼續作為 position sizing 分母(`k'×ATR`)的來源,不是死碼。
 
 ---
 
@@ -220,7 +222,7 @@
 
 - 本文件建立在提案文件([`strategy-5-exit-mechanism-hypothesis.md`](./change-proposals/strategy-5-exit-mechanism-hypothesis.md))已核准的技術論證上,未重新推導賭徒破產計算或 HP 濾波的 `λ` 公式,直接沿用該文件已標記的揭露(`σ_day=4%` 為粗估、Jobson-Korkie/Memmel 公式與 Harvey structural time series 均未取得原典——見該文件第 7 節,本文件不重複列出但同樣適用)。
 - **第 4.1 節「`donchian_period` 固定在 20,不重新掃描」是本文件撰寫過程中的判斷,不是既有核准文件明文交代的決定。** 論證我認為站得住,但這是一個新的、未經專案負責人單獨確認的設計選擇,建議核准本文件時一併確認。
-- **第 6.1 節指出的 position sizing 架構缺口(`atr_multiplier` 停用後,`position_size` 公式的分母失去對應量)是本文件撰寫過程中發現的問題,提案文件本身沒有點出到這個具體程度。** 這不是過度謹慎——如果不解決,Phase 6 實作階段很可能會在沒有 CP 核准的情況下「順手」選一個替代值,重演策略一「`k=3.0` 原本是治理起點,後來變成搜尋邊界」那種數字悄悄漂移的風險。**這是本文件認為現階段最需要專案負責人與 risk-manager 優先處理的事項。**
+- **第 6.1 節指出的 position sizing 架構缺口(`atr_multiplier` 停用後,`position_size` 公式的分母失去對應量)是本文件撰寫過程中發現的問題,提案文件本身沒有點出到這個具體程度。** ✅ 已於 [`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) 用真實資料解決(`k'=5.0`)。**過程中的一個插曲值得記錄:** risk-manager 第一版方向估計(災難後備停損 -12%~-18%)沒有真實資料支撐,用真實資料驗證後被推翻(真實數字是 -22%,見 CP-008 第 3 節)——這證實了「不解決就可能悄悄選一個站不住腳的替代值」的擔憂確實會發生,即使是善意的方向性估計也可能出錯,所以走完整的資料驗證流程是必要的,不是過度謹慎。
 - **第 3.4 節提出的「配對比較 vs 策略一」檢定方法,其顯著性門檻尚未推導。** 比照 CP-004 §3 的方法論(Jobson-Korkie + Memmel 修正、HAC 標準誤、bootstrap),但套用對象從「策略 vs 50/50 基準」換成「策略五 vs 策略一」,兩者的相關結構不同——策略五與策略一在進場點附近幾乎完全相關,分岔後相關度會隨時間遞減,不是 CP-004 原本假設的那種近似穩定的 `ρ`。**這個統計方法目前只有方向性論證,沒有可執行的公式**,必須在對真實資料執行前完成推導與實作。
 - **第 3.5 節「策略五在市時間預期偏低、CP-004 第二層大概率不會通過」的預測,是類比策略一 16.5% 在市時間與 `ρ≈0.41` 外推的,不是策略五本身的實測值。** 出場變慢理論上會拉長持倉、可能提高在市時間,方向不完全確定,這個預測有被推翻的空間,寫在這裡是為了誠實地預先聲明,而非確定的結論。
 - **第 2 節的可證偽預測全部以 `donchian_period=20` 這一個進場參數點為準,未涵蓋 CP-003 原本掃描的其他 4 個點(30/40/50/55)。** 這是刻意的(理由見 4.1 節),但意味著本假說的結論嚴格來說只涵蓋「這一個進場參數配置」,不能直接外推到策略一的其他 4 個掃描點是否也會有相同的出場機制改善。
@@ -233,7 +235,7 @@
 | 文件 | 關係 |
 |---|---|
 | [`scope.md`](./scope.md) | 標的池(BTC+ETH)、現貨、無槓桿、模擬資金全部不變;SOL/BNB 作為佐證用途超出原定標的池,屬補充驗證,不改變主判定的標的池定義 |
-| [`risk-policy.md`](./risk-policy.md) | 🔴 §1.4 的 `position_size` 公式依賴 `k×ATR` 停損距離,策略五停用 `k` 之後這個公式失去對應輸入——需 risk-manager 在 Phase 6 執行前決定替代方案,可能需要走 CP 流程(見第 6.1 節) |
+| [`risk-policy.md`](./risk-policy.md) | §1.4 的 `position_size` 公式依賴 `k×ATR` 停損距離,策略五停用原 `k` 後改用 [`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) 校準的 `k'=5.0`,公式結構不變;`-25%` fallback 同樣由 CP-008 為策略五訂出專屬的 `-22%`,不變動策略一現行數字(見第 6.1、6.2 節) |
 | [`CP-003`](./change-proposals/CP-003-fixed-parameters.md) | 進場參數(`donchian_period=20`、`atr_period=14`、`volume_ma_period=20`、`volume_multiplier=1.5`)原樣繼承,不重新掃描(見 4.1 節) |
 | [`CP-004`](./change-proposals/CP-004-revised-targets.md) | 主判定框架(兩層制);第二層依 3.3 節結構性限制,策略五(擇時型)大概率如同策略一難以受益於配對檢定的優勢 |
 | [`analysis/trend_filter.py`](../analysis/trend_filter.py) | 出場訊號的既有實作,9 項測試通過(合成資料),尚未接真實資料;本文件不修改其邏輯,只固定其唯一參數 `cutoff_period_days=45` 並說明來源 |
@@ -245,7 +247,7 @@
 ## 9. 若核准,執行順序
 
 1. 本文件核准 → commit
-2. 解決第 6.1/6.2 節風險(position sizing 公式的替代方案、災難後備停損收緊到多少)——兩者是同一個 CP 的兩面,須合併處理,不能分開拍板;6.2 節的收緊值需要真實資料的延遲分佈量測與崩盤情境壓力測試支撐,不能只憑方向感定案 → commit
+2. ~~解決第 6.1/6.2 節風險~~ → **已完成(2026-08-16,[`CP-008`](./change-proposals/CP-008-strategy-5-backstop-and-sizing.md) 已核准):災難後備停損 `-22%`、position sizing `k'=5.0`,均用真實資料推導 → commit**
 3. ~~排查第 6.3 節風險~~ → **已排查完成(2026-08-16,見 6.3 節):`StoplossGuard` 確認偵測不到斜率觸發的出場事件,`MaxDrawdown` 不受影響。待做:在 Phase 6 實作規格中補上等效的「頻率型連續虧損守門」(比照 risk-policy.md 3.4 節模式,寫在 `confirm_trade_entry`)→ commit**
 4. 推導並實作第 3.4 節「配對比較 vs 策略一」的顯著性檢定方法(比照 `analysis/sharpe_difference.py` 的模式)→ commit
 5. 依 [`CP-003`](./change-proposals/CP-003-fixed-parameters.md) 的模式,把第 4 節的參數表與第 6.3 節的連續虧損守門寫入策略程式碼(`donchian_period`、`cutoff_period_days` 等全部寫死,`optimize=False`)→ commit
