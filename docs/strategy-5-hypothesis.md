@@ -1,6 +1,6 @@
 # 策略五 Phase 1 假說:以 Kalman 濾波趨勢斜率取代固定停損的出場機制
 
-> 狀態:**✅ 已核准 / APPROVED(2026-08-16)。第 6.1、6.2 節已經 risk-manager 審閱,見各節內容;backtest-analyst / market-economist 尚未審閱,不影響本次核准 —— 第 9 節執行順序第 2-5 步仍是碰真實資料前的必要前置工作。**
+> 狀態:**✅ 已核准 / APPROVED(2026-08-16)。第 6.1、6.2 節已經 risk-manager 審閱;第 6.3 節已用 Freqtrade 原始碼排查確認(非推測)。backtest-analyst / market-economist 尚未審閱,不影響本次核准 —— 第 9 節執行順序第 2、4、5 步仍是碰真實資料前的必要前置工作。**
 > 日期:2026-08-16 ｜ 執筆:quant-strategist 角色
 > 前置:[`strategy-5-exit-mechanism-hypothesis.md`](./change-proposals/strategy-5-exit-mechanism-hypothesis.md)(✅ 已核准,含 4.1 節界線裁決與 4.2 節 `N` 認定)、[`CP-004`](./change-proposals/CP-004-revised-targets.md)(現行績效目標框架)、[`post-mortem-strategy-1.md`](./post-mortem-strategy-1.md)(診斷來源)、[`pass-b-results.md`](./pass-b-results.md)(策略一正式判定)、[`CP-003`](./change-proposals/CP-003-fixed-parameters.md)(進場參數固定值)、[`risk-policy.md`](./risk-policy.md)
 > 分級:**新策略假說**,依提案 4.1 節裁決,需走完整 Phase 1 → Phase 6 流程,`N` 從 1 重新累計(不在策略一的 `N=5` 上累加)
@@ -190,9 +190,17 @@
 
 **risk-manager 審閱意見(2026-08-16):**「理論上不該被觸及的保險」這個角色在策略五下已經不成立——沒有機制保證出場前的價格偏移小於 25%,提案第 3 節「反轉後 60 根內偵測到」是合成資料上的通過門檻,不是真實延遲分佈的估計,更不是崩盤情境(跳躍式反轉)下的延遲估計。用 `σ_day≈4%` 粗估,60 個交易日的持續不利波動量級上可能超過 -25%(參考真實案例:2020/3 COVID 崩盤 BTC 兩天內 -50%、2022/11 FTX 事件數日內 -25%,遠快於任何斜率濾波器能反應的時間尺度)。**初步方向估計應收緊到 -12%~-18% 區間**(貼近策略一 `k×ATR` 的實際運作範圍),但這只是方向感,不是可拍板的數字——需要用真實 BTC/ETH 歷史資料量測「已知趨勢反轉事件」到「斜率轉負」的實際天數分佈(不只是合成資料的 60 根上界),並疊加歷史崩盤情境(急跌型 vs. 緩跌型)做壓力測試,才能定出有依據的收緊值。**這項分析須在對真實資料執行第 3 節 (a)(b) 兩項正式比較之前完成**(否則等於一邊拿舊風控參數保護一個它從未被設計來保護的新出場機制執行回測,一邊還沒決定新參數該是多少)。
 
-### 6.3 🔴 `StoplossGuard` 熔斷器可能偵測不到斜率觸發的出場事件(**risk-manager 新發現,提案文件未提及**)
+### 6.3 🔴 `StoplossGuard` 熔斷器偵測不到斜率觸發的出場事件(**已用 Freqtrade 原始碼證實,非推測**)
 
-若出場實作走 `custom_exit`/`populate_exit_trend`(斜率轉負出場的自然實作路徑)而非 `custom_stoploss`,[`risk-policy.md`](./risk-policy.md) 第 6.2 節的 `StoplossGuard`(監測「停損筆數」以觸發熔斷)很可能**偵測不到**這類出場事件,造成這一層熔斷對策略五的出場行為視而不見——連續虧損可能不會被這一層防線攔下,即使每一筆都是「因為斜率轉負出場」造成的虧損。**這需要在 Phase 6 實作規格中明確排查**:確認策略五的出場事件是否會被 `StoplossGuard` 的計數邏輯正確捕捉,若不會,需要另外的等效機制(或依 [`risk-policy.md`](./risk-policy.md) 第 3.4 節「非框架層保證」的既有模式,在策略程式碼內自行實作對應的連續出場計數熔斷)。
+**排查結論(2026-08-16,直接讀 `.venv` 內 Freqtrade 原始碼確認):`StoplossGuard` 100% 偵測不到策略五的出場事件,不論實作走 `custom_exit()` 還是 `populate_exit_trend()`。**
+
+- `freqtrade/plugins/protections/stoploss_guard.py` 的 `_stoploss_guard()` 只計數 `trade.exit_reason` 屬於 `{"stop_loss", "trailing_stop_loss", "stoploss_on_exchange", "liquidation"}`(`ExitType` 列舉的四個值)的已平倉交易。
+- `freqtrade/strategy/interface.py:1460-1495` 顯示:走 `custom_exit()` 時 `exit_reason` 是策略回傳的自訂字串(或空字串);走 `populate_exit_trend()` 時 `exit_reason` 是空字串(除非額外呼叫 `custom_exit`)。`freqtrade/optimize/backtesting.py:928` 把這個值原樣寫進 `trade.exit_reason`。**兩條路徑產生的值都不可能等於上述四個字串之一。**
+- 對照組:`freqtrade/plugins/protections/max_drawdown_protection.py` 的 `_max_drawdown()` **完全不檢查 `exit_reason`**,只看已平倉交易的損益總和——**這一層不受影響**,策略五的虧損最終仍會被 6.4 節「月回撤 8%」與 5 節「kill switch 15%」這兩層量級型防線攔下,只是反應速度比 `StoplossGuard` 慢(`StoplossGuard` 是頻率型早期預警:10 天內 2 筆停損就鎖倉 5 天;月回撤/kill switch 要等損失累積到 8%/15% 才觸發)。
+
+**風控意涵:** 策略五可能連續出現多筆斜率觸發的虧損出場,而完全不觸發這個原本設計來抓「短窗口內連續停損」的早期預警層,直到損失累積到月回撤 8% 或 kill switch 15% 才會被攔下——**中間這段空窗期,本來該由 `StoplossGuard` 覆蓋。**
+
+**建議補救方案:** 依 [`risk-policy.md`](./risk-policy.md) 第 3.4 節既有的「非框架層保證」設計模式(該文件用同一套模式處理「每日虧損熔斷」——原生 Protection 也覆蓋不到「當日 % 損益」這個語意,因此在 `confirm_trade_entry` 內自行實作)。策略五應比照:在 `confirm_trade_entry` 內自行實作一個「頻率型連續虧損守門」,邏輯鏡射 `StoplossGuard`(查詢最近 `lookback_period` 內的已平倉交易,不篩 `exit_reason`、只篩 `close_profit < 0`,達到 `trade_limit` 筆數即拒絕新進場 `stop_duration`),參數是否沿用 `trade_limit=2`/`lookback=10天`/`stop_duration=5天`(策略一原值)待 risk-manager 在 Phase 6 前決定。**這屬於策略程式碼內的自訂邏輯,不像原生 Protection 有框架層雙重保險,依 risk-policy.md 3.4 節的既有要求,需要加強測試覆蓋。**
 
 ### 6.4 🟡 模型設定風險:跳躍式反轉(已知失效模式,僅揭露,不需前置行動)
 
@@ -238,10 +246,10 @@
 
 1. 本文件核准 → commit
 2. 解決第 6.1/6.2 節風險(position sizing 公式的替代方案、災難後備停損收緊到多少)——兩者是同一個 CP 的兩面,須合併處理,不能分開拍板;6.2 節的收緊值需要真實資料的延遲分佈量測與崩盤情境壓力測試支撐,不能只憑方向感定案 → commit
-3. 排查並解決第 6.3 節風險(`StoplossGuard` 是否偵測得到斜率觸發的出場事件)——若否,需在 Phase 6 實作規格中補上等效的連續出場計數熔斷 → commit
+3. ~~排查第 6.3 節風險~~ → **已排查完成(2026-08-16,見 6.3 節):`StoplossGuard` 確認偵測不到斜率觸發的出場事件,`MaxDrawdown` 不受影響。待做:在 Phase 6 實作規格中補上等效的「頻率型連續虧損守門」(比照 risk-policy.md 3.4 節模式,寫在 `confirm_trade_entry`)→ commit**
 4. 推導並實作第 3.4 節「配對比較 vs 策略一」的顯著性檢定方法(比照 `analysis/sharpe_difference.py` 的模式)→ commit
-5. 依 [`CP-003`](./change-proposals/CP-003-fixed-parameters.md) 的模式,把第 4 節的參數表寫入策略程式碼(`donchian_period`、`cutoff_period_days` 等全部寫死,`optimize=False`)→ commit
+5. 依 [`CP-003`](./change-proposals/CP-003-fixed-parameters.md) 的模式,把第 4 節的參數表與第 6.3 節的連續虧損守門寫入策略程式碼(`donchian_period`、`cutoff_period_days` 等全部寫死,`optimize=False`)→ commit
 6. **以上全部 commit 完成後**,才對真實 BTC/ETH 資料執行第 3 節 (a)(b) 兩項比較;SOL/BNB 佐證用資料若尚未取得,依 [`backtest-procedure.md`](./backtest-procedure.md) 1.4 節品質檢查流程取得並記錄校驗和
-6. 執行完成後,結果交由 backtest-analyst 依 CP-004 與本文件第 3 節判定,不得依結果回頭調整第 4 節已固定的參數
+7. 執行完成後,結果交由 backtest-analyst 依 CP-004 與本文件第 3 節判定,不得依結果回頭調整第 4 節已固定的參數
 
 **順序不可顛倒。這正是策略一之所以能給出一個可信結論的原因。**
