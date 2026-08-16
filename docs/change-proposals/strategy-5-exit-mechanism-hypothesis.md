@@ -1,13 +1,18 @@
 # 策略五假說(提案):以趨勢自身的統計訊號判定出場
 
-> 狀態:**⏸️ 提案中,未核准,未被優先處理 / PROPOSED, NOT PURSUED。尚未對真實資料評估任何績效。**
+> 狀態:**✅ 已核准,啟動 Phase 1 / APPROVED, PHASE 1 STARTING(2026-08-16)。**
+>
+> **4.1 節界線裁決(2026-08-16,專案負責人核准):採納提案主張 —— 這是真正的新假說,不是策略一的第 6 個參數點。** 理由見第 4.1 節表格:出場判準的輸入從「距峰值回撤」換成「整條路徑的濾波後斜率」,是換掉決策所用的統計量本身,不是同一條賭徒破產曲線上滑動。
+>
+> **4.2 節 N 認定(2026-08-16,專案負責人核准):`N=10` 為主判定(BTC/ETH),額外在策略一未曾看過的資產(SOL/USDT、BNB/USDT 等)上跑同一機制作為佐證,不列入主判定。** 依第 4.3 節的建議方案採納。
 >
 > **命名說明(2026-08-08):** 本文件原稱「策略二」,與 [`strategy-hypothesis.md`](../strategy-hypothesis.md) Phase 1 backlog 已存在的「策略二:流動性衝擊均值回歸」撞名,現改稱「策略五」以消除歧義,內容未變。
 >
-> **後續決策說明:** 提出後,[`target-reassessment.md`](./target-reassessment.md) 與 [`CP-004`](./CP-004-revised-targets.md) 改變了績效目標的形式(兩層制),連帶引導出 [`strategy-4-hypothesis.md`](../strategy-4-hypothesis.md)(波動度目標化)這條路線並優先執行。本提案未被正式否決,但**未被優先處理**,`analysis/trend_filter.py` 已實作但未串接進任何評估流程。
-> 日期:2026-08-08 ｜ 提出者:quant-mathematician
+> **後續決策說明:** 提出後,[`target-reassessment.md`](./target-reassessment.md) 與 [`CP-004`](./CP-004-revised-targets.md) 改變了績效目標的形式(兩層制),連帶引導出 [`strategy-4-hypothesis.md`](../strategy-4-hypothesis.md)(波動度目標化)這條路線並優先執行。策略四已於 CP-007 結案(見 [`strategy-4-cp007-results.md`](../strategy-4-cp007-results.md)),本提案現重新啟動。`analysis/trend_filter.py` 已實作(9 項測試,合成資料),尚未串接進任何評估流程。
+> 日期:2026-08-08(提出)、2026-08-16(核准)｜ 提出者:quant-mathematician
 > 前置:[`post-mortem-strategy-1.md`](../post-mortem-strategy-1.md)(診斷)、[`pass-b-results.md`](../pass-b-results.md)(策略一未通過)
 > 分級:**新策略假說**,需走完整的 Phase 1 → Phase 6 流程
+> 下一步(第 6 節執行順序):Phase 1 策略假說文件([`strategy-5-hypothesis.md`](../strategy-5-hypothesis.md))
 
 ---
 
