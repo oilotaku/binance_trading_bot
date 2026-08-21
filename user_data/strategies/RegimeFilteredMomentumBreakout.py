@@ -19,6 +19,7 @@ return 之前)與 confirm_trade_entry 尾端(送出前最後一次背書)各新�
 這一層是新增的防禦,**不改動**上面說明的既有訊號/停損/停利/風控計算邏輯本身。
 """
 
+import importlib.util
 import logging
 import sys
 from datetime import datetime, timedelta, timezone
@@ -32,11 +33,31 @@ from pandas import DataFrame
 from freqtrade.persistence import Trade
 from freqtrade.strategy import IntParameter, IStrategy, stoploss_from_absolute
 
-_STRATEGY_DIR = Path(__file__).resolve().parent
-if str(_STRATEGY_DIR) not in sys.path:
-    sys.path.insert(0, str(_STRATEGY_DIR))
 
-import fatfinger_guard as ffg  # noqa: E402  security-policy.md 第 5 節,獨立胖手指防護層
+def _load_fatfinger_guard():
+    """
+    載入 fatfinger_guard.py,不用 `sys.path.insert(0, 策略目錄)` 這種寫法(安全審查
+    LOW-11):`user_data/strategies/` 目錄會被 hyperopt 寫入自動產生的 `*.json` 參數
+    覆寫檔(見 .gitignore 對這個目錄的既有規則),插到 sys.path[0] 等於讓這個「本來
+    就會出現非人工維護檔案」的目錄,有能力遮蔽整個 freqtrade process 的標準函式庫/
+    第三方模組匯入(例如不小心出現一個 `logging.py`)。改用 `importlib` 直接依路徑
+    載入,完全不動 `sys.path`。
+    """
+    spec = importlib.util.spec_from_file_location(
+        "fatfinger_guard", Path(__file__).resolve().parent / "fatfinger_guard.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    # 必須在 exec_module 之前註冊進 sys.modules:fatfinger_guard.py 用了 @dataclass,
+    # 其內部型別檢查會用 cls.__module__ 回頭查 sys.modules 找模組物件(cpython
+    # dataclasses._is_type()),沒有先註冊的話會在載入 dataclass 定義時直接噴
+    # AttributeError('NoneType' object has no attribute '__dict__')——這是實測踩到
+    # 的坑,不是理論上的邊界情況。
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+ffg = _load_fatfinger_guard()  # security-policy.md 第 5 節,獨立胖手指防護層
 
 logger = logging.getLogger(__name__)
 
