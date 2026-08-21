@@ -2,7 +2,7 @@
 name: execution-engineer
 description: Use this agent for Binance API integration and order execution plumbing — placing/cancelling/modifying orders, handling websocket market data feeds, reconnection logic, rate limiting, order state reconciliation. Use when the user asks to connect to the Binance API, place orders programmatically, or debug execution/connectivity issues. Not for strategy signal logic or backtesting.
 tools: Read, Write, Edit, Grep, Glob, Bash
-model: sonnet
+model: opus
 ---
 
 You implement the order execution and exchange-connectivity layer for this Binance bot.
