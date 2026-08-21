@@ -242,5 +242,12 @@ This plan takes the feature requirements each of the 8 roles raised in [`stable-
 - [x] ~~Kelly 倉位公式的 `f*` 待真實資料~~ → **策略一未通過驗證,不會進入實盤,`custom_stake_amount` 沿用 `risk-policy.md` 硬上限的決定維持不變,不再需要補 `f*`。** 若未來 backlog 策略(二、三)通過驗證,屆時依同樣邏輯用該策略的真實 OOS Sharpe/波動度重新計算。
 - [x] **策略四(波動度目標化)、策略五(Kalman 濾波出場)已依各自的 Phase 1 假說文件走完整流程,對真實資料完成正式判定**:兩者第一層(回撤控制)通過、第二層(超額報酬)不通過,詳見 [`strategy-4-cp007-results.md`](./strategy-4-cp007-results.md)、[`strategy-5-results.md`](./strategy-5-results.md)。過程中新增 `CP-006`、`CP-007`、`CP-008` 三個變更提案(`σ_target` 兩次修正 + 策略五風控重新校準)。三個已判定策略均未達可投入真實資金標準,不主張 edge,見 README.md「驗證結果」。
 - [x] `user_data/strategies/` 下三個策略類別(`RegimeFilteredMomentumBreakout`、`VolatilityTargeting`、`TrendFilterExit`)均已通過真實 `StrategyResolver` 載入驗證。
-- [ ] **執行層安全機制(`security-policy.md` 第 3-5 節)** — 啟動前檢查腳本(環境橫幅 + live 強制打字確認)、胖手指防護層(獨立於計算路徑的硬上限裁剪 + 輸入合理性檢查)、日誌脫敏過濾器,2026-08-21 起實作中(見本文件版本歷史後續更新)。
-- [ ] **接上即時 API(即使是 dry-run)的唯一剩餘阻塞項:需要專案負責人自行申請 Binance API 金鑰**(規格見 `security-policy.md` 第 1 節),AI 助理無權限、也不應該代為完成這一步。金鑰到位、填入 `secrets-testnet.json` 後,配合上一項的安全機制即可啟動。
+- [x] **執行層安全機制(`security-policy.md` 第 3-5 節)已完成並經 `trading-security-reviewer` 兩輪審查修復(2026-08-21~22)：**
+      - `scripts/preflight_check.py` — 啟動 `freqtrade trade` 的唯一正式入口:環境橫幅、`dry_run`/secrets 檔名/環境變數金鑰的交叉矛盾偵測(含 live 環境 Telegram/API server 皆停用時中止啟動)、live 強制打字確認、testnet 僅需 Enter。
+      - `scripts/run_freqtrade_trade.py` — 讓日誌脫敏過濾器在 freqtrade 實際執行的 process 內生效(包裝 `logging.Logger.addHandler`,已用 positive+negative control 端到端驗證)；Windows 上用 kill-on-close Job Object 避免 preflight 被異常終止時留下孤兒子行程(`os.execv` 在 Windows 上實測不可行，已改用經驗證有效的方案)。
+      - `analysis/log_redaction.py` — `security-policy.md` 3.3 節脫敏規則的程式碼落地，並擴充涵蓋本專案實際會出現、但 3.3 節示意正則沒寫到的格式(JSON `"key"`/`"secret"` 鍵值對、`FREQTRADE__EXCHANGE__KEY/SECRET` 環境變數、PEM 私鑰)——這兩項擴充是審查中**實測重現外洩**後才修的，不是預防性猜測。
+      - `user_data/strategies/fatfinger_guard.py` — 獨立於各策略計算路徑的硬上限裁剪 + 輸入合理性檢查，接進三個策略檔案的 `custom_stake_amount`/`confirm_trade_entry`；`VolatilityTargeting.adjust_trade_position`(唯一會擴大既有部位的路徑，原本完全繞過前兩者)也已補上同一層防護。
+      - 每一輪修復後都重跑 `run_strategy4_evaluation.py`/`run_strategy5_evaluation.py`，逐項數字與 `strategy-4-cp007-results.md`/`strategy-5-results.md` 完全一致，確認新增的安全層沒有悄悄改變已 commit 的統計判定。
+      - `pytest analysis/tests/ -q`：294 passed, 5 skipped。
+      - 已知但刻意不動的殘留項(見對應 commit message)：`sys.path` 插入策略目錄帶來的模組劫持面(LOW，影響小)。
+- [ ] **接上即時 API(即使是 dry-run)的唯一剩餘阻塞項:需要專案負責人自行申請 Binance API 金鑰**(規格見 `security-policy.md` 第 1 節:Enable Reading 開啟即可，Enable Withdrawals/Futures/Margin Loan 關閉，建議加 IP 白名單)，AI 助理無權限、也不應該代為完成這一步。**已用真實網路實測確認**(2026-08-21):即使 dry-run 連正式 Binance,`reload_markets()` 仍需要有效 API key,否則直接啟動失敗——金鑰是硬性必要條件,不是選配。金鑰到位、依 `security-policy.md` 規格建立後複製 `user_data/configs/secrets-testnet.example.json` 為 `secrets-testnet.json` 並填入,即可用 `scripts/preflight_check.py` 啟動,不需要再回頭補任何程式碼。
