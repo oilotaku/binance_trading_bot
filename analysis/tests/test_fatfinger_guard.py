@@ -79,6 +79,88 @@ def test_equity_jump_boundary_exactly_at_ratio_passes():
 
 
 # ---------------------------------------------------------------------------
+# equity_usable_as_baseline —— 安全審查 MED-4:跳動比對失敗不得永久鎖死
+#
+# 「這次能不能下單(is_valid)」與「這次的 equity 能不能當下次比對的基準
+# (equity_usable_as_baseline)」是兩條職責不同的規則。修正前呼叫端只在 is_valid
+# 為 True 時更新基準,於是一次跳動誤判就會讓基準永遠停在舊值,之後每次比對只會
+# 差得更遠 —— 單次異常升級成永久停止進場,直到 process 重啟。
+# ---------------------------------------------------------------------------
+
+
+def test_baseline_flag_true_when_everything_passes():
+    r = ffg.validate_sizing_inputs(equity=10_000.0, risk_indicator=1.0, last_equity=10_000.0)
+    assert r.is_valid
+    assert r.equity_usable_as_baseline
+
+
+def test_baseline_flag_still_true_when_only_the_jump_check_fails():
+    """核心修正:跳動比對失敗 → 這次不下單,但這次的 equity 仍是合理讀值,要當新基準。"""
+    r = ffg.validate_sizing_inputs(equity=15_100.0, risk_indicator=1.0, last_equity=10_000.0)
+    assert not r.is_valid
+    assert r.equity_usable_as_baseline
+
+
+def test_baseline_flag_true_when_only_risk_indicator_is_bad():
+    """壞的是 ATR/sigma,不是 equity —— equity 本身仍然可以當基準。"""
+    r = ffg.validate_sizing_inputs(equity=10_000.0, risk_indicator=math.nan, last_equity=9_900.0)
+    assert not r.is_valid
+    assert r.equity_usable_as_baseline
+
+
+@pytest.mark.parametrize("bad_equity", [0.0, -100.0, math.nan, math.inf, -math.inf, None])
+def test_baseline_flag_false_when_equity_itself_is_unusable(bad_equity):
+    """equity 本身就是壞值時**不得**存成下次的基準,否則之後每次比對都會失真。"""
+    r = ffg.validate_sizing_inputs(equity=bad_equity, risk_indicator=1.0, last_equity=10_000.0)
+    assert not r.is_valid
+    assert not r.equity_usable_as_baseline
+
+
+@pytest.mark.parametrize("bad_equity", [0.0, -100.0, math.nan, math.inf, None])
+def test_equity_is_usable_as_baseline_predicate(bad_equity):
+    assert ffg.equity_is_usable_as_baseline(10_000.0)
+    assert not ffg.equity_is_usable_as_baseline(bad_equity)
+
+
+def test_notional_check_never_claims_baseline_usability():
+    """equity_usable_as_baseline 只有 validate_sizing_inputs 會設定,另一個檢查不碰它。"""
+    r = ffg.validate_notional_within_caps(notional=1_000.0, equity=10_000.0)
+    assert r.is_valid
+    assert not r.equity_usable_as_baseline
+
+
+def _simulate_caller(readings: list[float]) -> list[bool]:
+    """複製三個策略呼叫端的更新邏輯,回傳每次讀值是否放行下單。
+
+    這是 MED-4 的迴歸測試核心:三個策略檔案裡的那幾行必須與這裡一致
+    ——「先依 equity_usable_as_baseline 更新基準,再依 is_valid 決定要不要下單」。
+    """
+    baseline: float | None = None
+    allowed: list[bool] = []
+    for equity in readings:
+        v = ffg.validate_sizing_inputs(equity=equity, risk_indicator=1.0, last_equity=baseline)
+        if v.equity_usable_as_baseline:
+            baseline = equity
+        allowed.append(v.is_valid)
+    return allowed
+
+
+def test_single_anomalous_jump_blocks_only_one_signal_then_recovers():
+    """1 萬 → 3 萬(+200%,擋)→ 3.01 萬(相對新基準只差 0.3%,應恢復)。"""
+    assert _simulate_caller([10_000.0, 30_000.0, 30_100.0, 30_200.0]) == [
+        True,
+        False,
+        True,
+        True,
+    ]
+
+
+def test_bad_equity_reading_does_not_poison_the_baseline():
+    """中間插進一個 NaN 讀值:它自己被擋下,但不得覆蓋掉原本正常的基準。"""
+    assert _simulate_caller([10_000.0, math.nan, 10_100.0]) == [True, False, True]
+
+
+# ---------------------------------------------------------------------------
 # equity_jump_baseline —— 「跳動」檢查只在 live/dry-run 生效
 #
 # 為什麼要有這組測試:回測/hyperopt 同樣會呼叫 custom_stake_amount,而回測裡兩次
@@ -264,3 +346,48 @@ def test_notional_non_finite_or_negative_fails(bad_notional):
 def test_notional_check_non_finite_or_non_positive_equity_fails(bad_equity):
     r = ffg.validate_notional_within_caps(notional=100.0, equity=bad_equity)
     assert not r.is_valid
+
+
+# ---------------------------------------------------------------------------
+# 三個策略呼叫端的接線(原始碼層級的 pin)
+#
+# 上面的純函式測試證明模組本身的語意正確,但 MED-4 / LOW-10 兩個缺陷都出在
+# **呼叫端怎麼用**這個模組 —— 光測模組不會抓到策略檔案改回舊寫法。這裡用原始碼
+# 文字比對把三個檔案的接線順序釘住;會失敗代表有人改動了接線,應回頭讀
+# fatfinger_guard.validate_sizing_inputs 的職責分離說明再決定是否為預期變更。
+# ---------------------------------------------------------------------------
+
+_STRATEGY_FILES = [
+    "RegimeFilteredMomentumBreakout.py",
+    "TrendFilterExit.py",
+    "VolatilityTargeting.py",
+]
+
+
+def _strategy_source(name: str) -> str:
+    return (_STRATEGY_DIR / name).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("filename", _STRATEGY_FILES)
+def test_strategies_update_baseline_before_the_validity_gate(filename):
+    """MED-4:基準更新必須在 `if not validation.is_valid: ... return 0.0` 之前,
+    而且條件是 equity_usable_as_baseline,不是 is_valid。"""
+    src = _strategy_source(filename)
+    update_at = src.find("if validation.equity_usable_as_baseline:")
+    gate_at = src.find("if not validation.is_valid:")
+    assert update_at != -1, f"{filename} 沒有依 equity_usable_as_baseline 更新基準"
+    assert gate_at != -1
+    assert update_at < gate_at, f"{filename} 的基準更新被擋在 fail-closed return 之後"
+    assert "self._fatfinger_last_equity" in src[update_at:gate_at]
+
+
+@pytest.mark.parametrize("filename", ["RegimeFilteredMomentumBreakout.py", "TrendFilterExit.py"])
+def test_strategies_clamp_before_checking_min_stake(filename):
+    """LOW-10:裁剪必須在 min_stake 檢查之前,否則被裁剪後低於 min_stake 的金額
+    會被 freqtrade 的 validate_stake_amount() 拉回 min_stake(+30% 容許),
+    送出金額又超過硬上限,再被 confirm_trade_entry 的背書檢查靜默擋掉。"""
+    src = _strategy_source(filename)
+    clamp_at = src.find("clamped = ffg.clamp_stake(")
+    min_stake_at = src.find("if min_stake and final_stake < min_stake:")
+    assert clamp_at != -1 and min_stake_at != -1
+    assert clamp_at < min_stake_at, f"{filename} 仍然是先比 min_stake 才裁剪"

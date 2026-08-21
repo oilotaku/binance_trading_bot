@@ -214,6 +214,12 @@ class VolatilityTargeting(IStrategy):
                 self.dp.runmode if self.dp else None, self._fatfinger_last_equity
             ),
         )
+        # 安全審查 MED-4:基準值的更新**不以本次驗證通過為條件**(三個策略一致)。
+        # 只要這次的 equity 本身是合理的有限正數,就讓它成為下次跳動比對的基準;
+        # 否則一次跳動誤判會讓基準永遠停在舊值,單次異常升級成永久鎖死進場。
+        # 完整理由見 fatfinger_guard.validate_sizing_inputs 的職責分離段落。
+        if validation.equity_usable_as_baseline:
+            self._fatfinger_last_equity = equity_for_validation
         if not validation.is_valid:
             logger.warning(
                 "[%s] 胖手指防護:custom_stake_amount 輸入合理性檢查未通過,"
@@ -222,19 +228,22 @@ class VolatilityTargeting(IStrategy):
                 validation.reason,
             )
             return 0.0
-        self._fatfinger_last_equity = equity_for_validation
 
         total_equity = self.wallets.get_total_stake_amount()
         stake = w * total_equity
-        floor = min_stake or 0.0
-        if stake < floor:
-            return 0.0  # 低於交易所最小下單量,寧可不進場也不要下一個假的部位
 
         # --- security-policy.md 5.2 節第 1/2 點:獨立來源硬上限的最終裁剪 ---
         # fatfinger_guard.NOTIONAL_SINGLE_CAP/COMBINED_CAP 與 vt.MAX_EXPOSURE
         # (CP-005 3.5 節,已對應 risk-policy.md 4.3 節合併名目上限)各自獨立
         # 宣告——即使 _target_weight_per_pair 內的 vt.MAX_EXPOSURE 換算路徑
         # 本身有 bug,這裡仍能獨立擋下超額值。
+        #
+        # 順序(安全審查 LOW-10,與策略一/五一致):裁剪必須在 min_stake 檢查**之前**。
+        # 若先檢查 min_stake 再裁剪,而裁剪把金額壓到 min_stake 以下,freqtrade 的
+        # validate_stake_amount() 會把它拉回 min_stake(容許最多 +30%),送出的金額
+        # 可能又略微超出胖手指硬上限,在 confirm_trade_entry 的背書檢查(容差極小)
+        # 被拒絕,整筆訊號被靜默丟棄。改成先裁剪,再拿裁剪後的金額跟 min_stake 比,
+        # 結果是明確的「不下單」而不是「下了又被自己擋掉」。
         final_stake = min(stake, max_stake)
         combined_used_notional = sum(
             (t.stake_amount or 0.0) for t in Trade.get_open_trades() if t.pair != pair
@@ -242,7 +251,12 @@ class VolatilityTargeting(IStrategy):
         clamped = ffg.clamp_stake(final_stake, total_equity, combined_used_notional)
         if clamped.was_clamped:
             logger.warning("[%s] 胖手指防護:%s", pair, clamped.reason)
-        return clamped.stake
+        final_stake = clamped.stake
+
+        floor = min_stake or 0.0
+        if final_stake < floor:
+            return 0.0  # 低於交易所最小下單量,寧可不進場也不要下一個假的部位
+        return final_stake
 
     def confirm_trade_entry(
         self,
@@ -332,7 +346,32 @@ class VolatilityTargeting(IStrategy):
 
         delta = target_stake - current_stake
         if delta > 0:
-            return min(delta, max_stake)
+            # security-policy.md 第 5 節:胖手指防護層。
+            #
+            # ⚠️ 這條路徑原本完全繞過 custom_stake_amount/confirm_trade_entry 的胖手指
+            # 檢查——已用 freqtrade 原始碼查證確認(freqtradebot.py:execute_entry/
+            # get_valid_enter_price_and_stake):custom_stake_amount 只在 `trade is None`
+            # (全新倉位)才被呼叫,confirm_trade_entry 只在 `mode == "initial"` 才被呼叫;
+            # adjust_trade_position 回傳的加碼金額(mode="pos_adjust"、trade 不是 None)
+            # 兩者都不會經過,直接送進 execute_entry。這是這個「永遠在市、只靠再平衡
+            # 調整曝險」策略裡唯一會擴大部位的路徑,不能沒有獨立檢查。
+            #
+            # 因此在這裡直接補上與 custom_stake_amount 尾端同一套獨立裁剪 ——
+            # combined_used_notional 用「這筆之外的其他持倉」,加碼後的總部位
+            # (current_stake + 裁剪後的加碼量)才是這個交易對真正會佔用的名目金額,
+            # 所以裁剪對象是 current_stake + delta(加碼後的總部位),不是 delta 本身。
+            equity_for_clamp = self.wallets.get_total_stake_amount()
+            combined_used_notional = sum(
+                (t.stake_amount or 0.0) for t in Trade.get_open_trades() if t.pair != trade.pair
+            )
+            proposed_total = min(current_stake + delta, current_stake + max_stake)
+            clamped = ffg.clamp_stake(proposed_total, equity_for_clamp, combined_used_notional)
+            if clamped.was_clamped:
+                logger.warning("[%s] 胖手指防護(再平衡加碼):%s", trade.pair, clamped.reason)
+            clamped_delta = clamped.stake - current_stake
+            if clamped_delta <= 0:
+                return None
+            return min(clamped_delta, max_stake)
         # 減碼:不得把部位降到 min_stake 以下(那要走完整出場,不是部分減碼)
         floor = min_stake or 0.0
         return -min(-delta, current_stake - floor) if current_stake > floor else None

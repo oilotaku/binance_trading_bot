@@ -63,8 +63,14 @@ def equity_jump_baseline(runmode: object, last_equity: float | None) -> float | 
     規則,語意上假設的是「兩次讀值之間只隔幾秒到幾分鐘的即時輪詢」;但在回測裡,
     兩次進場訊號之間可能相隔數週到數月,加密貨幣的權益在這段期間變動超過 50%
     完全是正常現象,不是異常。一旦誤觸發,`validate_sizing_inputs()` 回傳
-    not valid → 策略 `return 0.0` 且**不更新** `_fatfinger_last_equity`,於是基準值
-    永遠停在舊值、之後每次比對只會差得更遠 —— 回測會從那個時間點起**永久停止進場**。
+    not valid → 策略 `return 0.0`,那根 K 棒的進場訊號就被無聲丟棄了。
+
+    (歷史註記:安全審查 MED-4 修正前,呼叫端只在驗證通過時才更新
+    `_fatfinger_last_equity`,基準值會永遠停在舊值、之後每次比對只會差得更遠,
+    誤觸發一次就等於**永久停止進場**。該缺陷已修正——基準值現在只要 equity
+    本身合理就會更新,見 `validate_sizing_inputs()` 的職責分離說明。但即使
+    如此,在回測開啟這條規則仍會零星丟棄進場訊號、改變已定案的數字,所以
+    下面「回測一律不做跳動比對」的結論不變。)
 
     這對本專案的殺傷力不只是「回測數字變差」:`docs/strategy-5-results.md`、
     `docs/strategy-4-cp007-results.md`、`docs/pass-b-results.md` 都是已經 commit、
@@ -92,8 +98,21 @@ def equity_jump_baseline(runmode: object, last_equity: float | None) -> float | 
 
 @dataclass(frozen=True)
 class InputValidationResult:
+    """輸入檢查結果。
+
+    :param is_valid: 這次的輸入整體是否通過檢查(不通過 → 呼叫端 fail closed,
+        本次訊號不下單)。
+    :param reason: 未通過的原因,通過時為 None。
+    :param equity_usable_as_baseline: **只有 `validate_sizing_inputs()` 會設定這個
+        欄位**(`validate_notional_within_caps()` 一律留在預設 False,對它沒有意義)。
+        語意是「這次讀到的 equity 本身是否合理到足以當作**下次**跳動比對的基準」,
+        刻意與 `is_valid` 分開 —— 見 `validate_sizing_inputs()` docstring 的
+        「兩個檢查的職責分離」段落。
+    """
+
     is_valid: bool
     reason: str | None = None
+    equity_usable_as_baseline: bool = False
 
 
 @dataclass(frozen=True)
@@ -101,6 +120,17 @@ class ClampResult:
     stake: float
     was_clamped: bool
     reason: str | None = None
+
+
+def equity_is_usable_as_baseline(equity: float | None) -> bool:
+    """這個 equity 讀值本身是否合理到足以當作**下次**跳動比對的基準?
+
+    只看「equity 自己」——有限、正數即可,完全不管它相對上次讀值跳了多少
+    (跳動比對是另一條獨立的規則,見 `validate_sizing_inputs()` 的職責分離說明)。
+    `validate_sizing_inputs()` 內部用的就是這個函式,呼叫端因此不可能與它對
+    「什麼叫合理的 equity」有不同看法。
+    """
+    return equity is not None and math.isfinite(equity) and equity > 0
 
 
 def validate_sizing_inputs(
@@ -112,6 +142,27 @@ def validate_sizing_inputs(
 ) -> InputValidationResult:
     """
     security-policy.md 5.2 節第 3 點:輸入合理性檢查。
+
+    **兩個檢查的職責分離(安全審查 MED-4,重要):**
+
+    本函式其實混合了兩條性質不同的規則:
+      (1) 「equity / risk_indicator 本身必須是有限正數」—— 只看這一次的讀值;
+      (2) 「equity 相對上次讀值不得跳動超過 50%」—— 需要跨迭代的基準值。
+
+    回傳值因此拆成兩個欄位:`is_valid`(這次能不能下單)與
+    `equity_usable_as_baseline`(這次的 equity 能不能當下次的基準)。
+
+    原本的設計是「只有 `is_valid` 為 True 時呼叫端才更新基準」,這會造成
+    **永久鎖死**:一旦某次跳動比對失敗(例如交易所回傳一次異常餘額快照、
+    或入金/出金造成的一次合法大跳動),基準值就永遠停在那個舊值,之後每次
+    讀到的新權益都拿去跟這個越來越過期的基準比,跳幅只會越來越大,於是
+    每一次進場都被擋下,直到 process 重啟為止 —— 單次異常升級成永久停機。
+
+    正確語意:只要 (1) 通過(equity 自己是合理的有限正數),不論 (2) 有沒有
+    通過,這次的 equity 都應該成為下次比對的新基準;唯有 equity 本身就不合理
+    (NaN/inf/非正數)時才不更新 —— 不能把壞值存成下次的基準,否則之後每次
+    比對都會失真。這樣一來,單次跳動異常只會擋下單次訊號(fail closed 的
+    原意),不會累積成永久鎖死。
 
     :param equity: 目前權益快照(self.wallets.get_total_stake_amount() 或等價)。
     :param risk_indicator: 部位大小公式分母所依賴的風險指標——
@@ -126,8 +177,15 @@ def validate_sizing_inputs(
         傳入 None 代表本次是這輪執行以來第一次讀值,不做跳動比對(沒有
         基準可比較,強行比較只會產生誤判,不是「跳過檢查」的偷懶)。
     """
-    if equity is None or not math.isfinite(equity) or equity <= 0:
-        return InputValidationResult(False, f"equity 不合理(非有限正數):{equity!r}")
+    # 檢查 (1):equity 自己合不合理。這同時決定了 equity_usable_as_baseline
+    # ——「能不能當下次基準」只取決於這一條,與跳動比對的結果無關。
+    equity_ok = equity_is_usable_as_baseline(equity)
+    if not equity_ok:
+        return InputValidationResult(
+            False,
+            f"equity 不合理(非有限正數):{equity!r}",
+            equity_usable_as_baseline=False,
+        )
 
     if (
         risk_indicator is None
@@ -135,9 +193,14 @@ def validate_sizing_inputs(
         or risk_indicator <= 0
     ):
         return InputValidationResult(
-            False, f"risk_indicator 不合理(非有限正數):{risk_indicator!r}"
+            False,
+            f"risk_indicator 不合理(非有限正數):{risk_indicator!r}",
+            # equity 本身沒問題,壞的是 risk_indicator —— 這次的 equity 仍然
+            # 是個合理的讀值,理當成為下次比對的基準。
+            equity_usable_as_baseline=True,
         )
 
+    # 檢查 (2):跨迭代跳動比對。不通過只擋下這一次的訊號,不影響基準更新。
     if last_equity is not None and math.isfinite(last_equity) and last_equity > 0:
         jump_ratio = abs(equity - last_equity) / last_equity
         if jump_ratio > max_equity_jump_ratio:
@@ -146,9 +209,10 @@ def validate_sizing_inputs(
                 f"equity 單迭代跳動 {jump_ratio:.1%} 超過上限 "
                 f"{max_equity_jump_ratio:.0%}(上次 {last_equity!r} -> 這次 "
                 f"{equity!r}),疑似讀到過期或錯誤的權益快照",
+                equity_usable_as_baseline=True,
             )
 
-    return InputValidationResult(True)
+    return InputValidationResult(True, equity_usable_as_baseline=True)
 
 
 def clamp_stake(

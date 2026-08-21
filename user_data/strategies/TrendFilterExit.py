@@ -495,6 +495,12 @@ class TrendFilterExit(IStrategy):
                 self.dp.runmode if self.dp else None, self._fatfinger_last_equity
             ),
         )
+        # 安全審查 MED-4:基準值的更新**不以本次驗證通過為條件**(三個策略一致)。
+        # 只要這次的 equity 本身是合理的有限正數,就讓它成為下次跳動比對的基準;
+        # 否則一次跳動誤判會讓基準永遠停在舊值,單次異常升級成永久鎖死進場。
+        # 完整理由見 fatfinger_guard.validate_sizing_inputs 的職責分離段落。
+        if validation.equity_usable_as_baseline:
+            self._fatfinger_last_equity = total_equity
         if not validation.is_valid:
             logger.warning(
                 "[%s] 胖手指防護:custom_stake_amount 輸入合理性檢查未通過,"
@@ -503,7 +509,6 @@ class TrendFilterExit(IStrategy):
                 validation.reason,
             )
             return 0.0
-        self._fatfinger_last_equity = total_equity
 
         k_prime = self.ATR_MULTIPLIER
 
@@ -534,18 +539,26 @@ class TrendFilterExit(IStrategy):
         )
 
         final_stake = min(stake_from_atr, notional_cap, combined_notional_cap, max_stake)
-        if min_stake and final_stake < min_stake:
-            return 0.0  # 算出的部位小於交易所最小下單量,寧可不下單也不要下超額單
 
         # --- security-policy.md 5.2 節第 1/2 點:獨立來源硬上限的最終裁剪 ---
         # fatfinger_guard.clamp_stake 用模組自己獨立宣告的 NOTIONAL_SINGLE_CAP/
         # NOTIONAL_COMBINED_CAP(數值上與上面 self.NOTIONAL_SINGLE_CAP/
         # self.NOTIONAL_COMBINED_CAP 相同,但物理上是兩份獨立宣告)——即使上面
         # min() 那一行本身有 bug,這裡仍能獨立擋下超額值。
+        #
+        # 順序(安全審查 LOW-10,與策略一一致):裁剪必須在 min_stake 檢查之前。
+        # 先檢查再裁剪的話,被裁剪到 min_stake 以下的金額會被 freqtrade 的
+        # validate_stake_amount() 拉回 min_stake(容許最多 +30%),於是送出金額
+        # 可能又超過硬上限,再被 confirm_trade_entry 的背書檢查靜默擋掉。
         clamped = ffg.clamp_stake(final_stake, total_equity, combined_used_notional)
         if clamped.was_clamped:
             logger.warning("[%s] 胖手指防護:%s", pair, clamped.reason)
-        return clamped.stake
+        final_stake = clamped.stake
+
+        if min_stake and final_stake < min_stake:
+            return 0.0  # 算出的部位小於交易所最小下單量,寧可不下單也不要下超額單
+
+        return final_stake
 
     def _risk_fraction_of_trade(self, trade: Trade, total_equity: float) -> float:
         """

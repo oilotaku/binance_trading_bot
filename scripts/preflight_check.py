@@ -18,7 +18,10 @@
        Testnet 環境:只需要 Enter 或 Ctrl-C。
     6. 通過檢查後,才真正呼叫 `python scripts/run_freqtrade_trade.py trade
        --config ...`,把這次執行拿到的 config 參數與其他透傳參數(例如
-       --strategy)原樣轉發。
+       --strategy)原樣轉發。啟動方式依平台不同(安全審查 LOW-8,避免留下
+       孤兒行程):POSIX 用 `os.execv` 直接取代目前行程;Windows 因為
+       `os.execv` 實測會產生脫離控制的新 PID 並遺失 exit code,改用
+       kill-on-close Job Object 綁住子行程。詳見 `launch_freqtrade()`。
 
 為什麼第 6 步不是直接 `python -m freqtrade trade`(重要):
     子行程有自己獨立的 `logging` 模組狀態,`analysis/log_redaction.py` 的
@@ -148,12 +151,17 @@ def parse_args(argv: list[str]) -> tuple[list[str], list[str]]:
 # ---------------------------------------------------------------------------
 
 
-def load_merged_dry_run(config_paths: list[str]) -> bool:
+def load_merged_config(config_paths: list[str]) -> dict:
     """
     比照 analysis/tools/run_strategy5_evaluation.py、
     analysis/tests/test_vol_targeting_strategy_integration.py 已有的模式,
-    呼叫 Freqtrade 內部的 Configuration API 取得「疊加合併後實際生效」的值
+    呼叫 Freqtrade 內部的 Configuration API 取得「疊加合併後實際生效」的設定
     ——不是自己重新寫一套 json 合併邏輯去猜測 Freqtrade 的合併規則。
+
+    ⚠️ 回傳的 dict **含有機密欄位**(疊加鏈裡的 secrets-*.json 已經被合併進來,
+    `exchange.key`/`exchange.secret` 就在裡面)。呼叫端只能讀取需要的非機密欄位
+    (dry_run、telegram.enabled、api_server.enabled),**絕不可整份印出或記錄**
+    ——security-policy.md 第 3 節。
     """
     from freqtrade.configuration import Configuration
 
@@ -166,8 +174,12 @@ def load_merged_dry_run(config_paths: list[str]) -> bool:
     # RunMode.DRY_RUN/RunMode.LIVE,而不是由這支腳本自己先猜一個 RunMode 傳進去
     # (原始碼查證:Configuration 沒有 RunMode.TRADE 這個列舉值)。
     args = {"config": config_paths}
-    cfg = Configuration(args, None).get_config()
-    return bool(cfg.get("dry_run", True))
+    return Configuration(args, None).get_config()
+
+
+def load_merged_dry_run(config_paths: list[str]) -> bool:
+    """合併後實際生效的 `dry_run` 值(薄包裝,見 `load_merged_config()`)。"""
+    return bool(load_merged_config(config_paths).get("dry_run", True))
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +214,52 @@ def detect_secrets_file(config_paths: list[str]) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def cross_check_environment(dry_run: bool, secrets_file: str | None) -> EnvironmentDecision:
+def _control_channel_problems(merged_config: dict | None) -> list[str]:
+    """
+    live 專用檢查(安全審查 MED-6):即時主動推播/遠端控制通道至少要有一個開著。
+
+    security-policy.md 5.2 節與 risk-policy.md 5.2 節都把「即時主動推播」當成
+    kill switch 兩層設計(自動熔斷 + 人工介入)能夠生效的**前提**:自動那一層
+    由 Freqtrade protections 保證,人工那一層完全依賴操作者能收到通知、並能
+    遠端下 `/forceexit all`、`/stopentry` 這類指令。Telegram 與 REST API server
+    兩者都關閉時,這條人工路徑實際上不存在 —— 偵測到問題也無法遠端執行。
+
+    只在 live(dry_run=False)才檢查:dry-run 沒有真實資金風險,少了控制通道
+    最多是不方便,不構成拒絕啟動的理由。
+
+    `merged_config is None`(讀不到合併後設定)時,對 live 一律視為「無法確認」
+    而回報問題 —— 這條是刻意 fail closed:寧可多擋一次,不要因為呼叫端忘了把
+    設定傳進來,就讓一個沒有人工介入能力的 live 部署悄悄通過。
+    """
+    if merged_config is None:
+        return [
+            "無法取得合併後的設定內容,因此無法確認 Telegram / API server 控制通道"
+            "是否至少有一個啟用。live 環境下拒絕在看不到這件事的情況下繼續"
+            "(security-policy.md 5.2 節)。"
+        ]
+
+    telegram_on = bool((merged_config.get("telegram") or {}).get("enabled", False))
+    api_on = bool((merged_config.get("api_server") or {}).get("enabled", False))
+    if telegram_on or api_on:
+        return []
+
+    return [
+        "live 環境(dry_run=False),但合併後設定的 telegram.enabled 與 "
+        "api_server.enabled **兩者皆為 false**。kill switch 是兩層設計"
+        "(risk-policy.md 5.2 節):自動熔斷由 protections 保證,但**人工介入那一層"
+        "完全依賴 Telegram/API 控制通道** —— 兩者都關閉時,偵測到問題後將無法遠端"
+        "執行 `/forceexit all`、`/stopentry`,也收不到任何主動推播通知。"
+        "請先在設定中啟用 Telegram(建議,security-policy.md 2.1 節:token/chat_id "
+        "走 .env)或 api_server(注意:啟用前必須把 jwt_secret_key/ws_token 佔位符"
+        "換成真正的隨機值,並確認只綁 127.0.0.1),再重新啟動。"
+    ]
+
+
+def cross_check_environment(
+    dry_run: bool,
+    secrets_file: str | None,
+    merged_config: dict | None = None,
+) -> EnvironmentDecision:
     """
     security-policy.md 4.1 節第 3 點定義的兩個矛盾情境:
         (a) 載入 secrets-live.json 但 dry_run=True
@@ -227,6 +284,10 @@ def cross_check_environment(dry_run: bool, secrets_file: str | None) -> Environm
             金鑰(例如殘留在 shell 裡的 testnet 金鑰 + 指令列指定的
             secrets-live.json),操作者會對「現在到底用哪個帳戶在交易」
             產生完全錯誤的認知 —— 這正是本腳本要防的那類誤用。
+        (e) **只在 live 檢查**:合併後設定的 telegram.enabled 與
+            api_server.enabled 皆為 false —— kill switch 的人工介入那一層
+            沒有任何可用的控制通道。詳見 `_control_channel_problems()`。
+            這條需要 `merged_config`;沒傳入時對 live 一律 fail closed。
 
     is_live(是否需要走 4.2 節「完整輸入確認」流程)的判斷只看 dry_run:
     dry_run=False 就一律視為 live,不因為疊加了哪個 secrets 檔案而不同
@@ -270,6 +331,11 @@ def cross_check_environment(dry_run: bool, secrets_file: str | None) -> Environm
             "和你以為的完全不同的帳戶。請二擇一:要嘛 unset 這些環境變數,"
             "要嘛從 --config 疊加鏈裡拿掉 secrets 檔案。"
         )
+
+    # (e) live 專用:Telegram / API server 至少要有一個開著(安全審查 MED-6)。
+    #     dry-run 不檢查 —— 沒有真實資金風險,不需要這個前提。
+    if not dry_run:
+        problems.extend(_control_channel_problems(merged_config))
 
     return EnvironmentDecision(
         dry_run=dry_run,
@@ -456,13 +522,170 @@ def build_launch_command(config_paths: list[str], passthrough_args: list[str]) -
     return cmd
 
 
+def _exec_replacing_current_process(cmd: list[str]) -> int:
+    """POSIX:用 `os.execv` 讓 freqtrade **取代**目前這個 process(不會回傳)。
+
+    安全審查 LOW-8:原本用 `subprocess.run()`,preflight 若被 `kill`(非
+    process-group 方式)終止,子行程會被 reparent 給 init 繼續跑下去 —— 操作者
+    以為機器人停了,實際上還在下單。`execv` 之後只剩一個 PID,不存在孤兒。
+    """
+    os.chdir(REPO_ROOT)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(cmd[0], cmd)  # noqa: S606 - 指令由本腳本自己組出,非使用者輸入字串
+    raise AssertionError("os.execv 回傳了——POSIX 上不應發生")  # pragma: no cover
+
+
+# Job object handle 必須在子行程存活期間一直被持有:kill-on-close 的語意正是
+# 「這個 job 的最後一個 handle 關閉時,殺掉 job 內所有 process」,handle 被 GC
+# 回收就等於解除了保護。放模組層級變數避免被回收。
+_WINDOWS_JOB_HANDLE = None
+
+
+def _create_kill_on_close_job():  # pragma: no cover - 只在 Windows 執行
+    """建立設了 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Windows Job Object。
+
+    失敗時回傳 None(呼叫端降級為普通子行程,並印出警告),不讓啟動流程整個掛掉。
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
+            ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.POINTER(wintypes.ULONG)),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    job_object_extended_limit_information = 9
+    job_object_limit_kill_on_job_close = 0x00002000
+
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+
+    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = job_object_limit_kill_on_job_close
+    ok = kernel32.SetInformationJobObject(
+        job,
+        job_object_extended_limit_information,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+    )
+    if not ok:
+        kernel32.CloseHandle(job)
+        return None
+    return job
+
+
+def _run_in_kill_on_close_job(cmd: list[str]) -> int:  # pragma: no cover - 只在 Windows 執行
+    """Windows:子行程綁進 kill-on-close Job Object,父行程一死子行程一起死。
+
+    **為什麼 Windows 不用 `os.execv`(實測結論,不是推論):**
+    在這台 Windows 11 上實測 `os.execv(sys.executable, [...])`,結果是
+    「呼叫端立刻拿到 exit code 0 並繼續往下跑,新 process 以另一個 PID 在背景
+    獨立存活、子行程的輸出與真正的 exit code(7)完全遺失」。Windows 沒有
+    fork/exec 模型,CRT 的 `_wexecv` 是「另外 CreateProcess 一個新 process,
+    然後結束目前這個」——這**不是**行程取代,反而正好製造出 LOW-8 想避免的
+    那種脫離控制的孤兒行程,還會讓行程監督誤判成「乾淨結束(exit 0)」。
+    因此 Unix 的做法在這裡不能照搬。
+
+    Windows 上等價達成「preflight 死掉 → freqtrade 一定跟著死」的機制是
+    Job Object + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`:preflight 不論以什麼
+    方式結束(含 `taskkill /F`,那是無法被攔截的強制終止),它持有的 job
+    handle 都會被作業系統關閉,job 內的 freqtrade 隨即被核心殺掉。這比 execv
+    在 POSIX 上的保證再多一層:連「父行程被 SIGKILL 等價手段殺掉」也涵蓋。
+
+    已知殘餘限制(誠實揭露):
+      - `CreateProcess` 與 `AssignProcessToJobObject` 之間有數十微秒的空窗,
+        若 preflight 正好在這個空窗內被強制終止,子行程會逃逸。要完全消除
+        需要 CREATE_SUSPENDED + 手動 ResumeThread,`subprocess.Popen` 沒有
+        暴露這個能力,判斷不值得為此自己重寫一套 CreateProcess 呼叫。
+      - 建立 job 失敗時降級為普通子行程(印出警告),行為等同修正前。
+      - 與 POSIX 不同,這裡仍然是兩個 PID 的父子關係(Windows 做不到單一
+        PID 取代),但「preflight 消失後 freqtrade 還活著」這個 LOW-8 的
+        實際危害已經被 kill-on-close 消除。
+    """
+    global _WINDOWS_JOB_HANDLE
+
+    job = _create_kill_on_close_job()
+    if job is None:
+        print(
+            "[preflight_check] 警告:無法建立 Windows Job Object,降級為普通子行程。"
+            "若本腳本被強制終止,freqtrade 子行程可能繼續存活——請自行以工作管理員確認。",
+            file=sys.stderr,
+        )
+    _WINDOWS_JOB_HANDLE = job
+
+    proc = subprocess.Popen(cmd, cwd=REPO_ROOT)  # noqa: S603
+
+    if job is not None:
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        if not kernel32.AssignProcessToJobObject(job, int(proc._handle)):
+            print(
+                "[preflight_check] 警告:AssignProcessToJobObject 失敗"
+                f"(GetLastError={ctypes.get_last_error()}),freqtrade 子行程未受"
+                "kill-on-close 保護;若本腳本被強制終止,請自行確認該行程是否仍在執行。",
+                file=sys.stderr,
+            )
+
+    while True:
+        try:
+            return proc.wait()
+        except KeyboardInterrupt:
+            # Ctrl-C 在 Windows 主控台會同時送到子行程,這裡只要繼續等它自己收尾,
+            # 不要讓 preflight 先行退出而讓子行程失去父行程(雖然 job 會兜底)。
+            continue
+
+
 def launch_freqtrade(config_paths: list[str], passthrough_args: list[str]) -> int:
+    """通過所有檢查後,啟動 freqtrade(安全審查 LOW-8:不留下孤兒行程)。
+
+    平台差異是刻意的,兩邊的實測依據見各自的函式 docstring:
+      - POSIX:`os.execv`,行程被取代,連「兩個 PID」都不存在。
+      - Windows:`os.execv` 實測會產生脫離控制的新 PID 且遺失 exit code,
+        改用 Job Object(kill-on-close)+ 子行程。
+    """
     cmd = build_launch_command(config_paths, passthrough_args)
 
     print()
     print(f"通過檢查,啟動:{' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=REPO_ROOT)
-    return result.returncode
+    sys.stdout.flush()
+
+    if os.name == "nt":
+        return _run_in_kill_on_close_job(cmd)
+    return _exec_replacing_current_process(cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -475,9 +698,12 @@ def main(argv: list[str] | None = None) -> int:
     config_paths, passthrough_args = parse_args(argv)
 
     try:
-        dry_run = load_merged_dry_run(config_paths)
+        # 合併後的設定含機密欄位,只在此處讀取需要的非機密欄位,絕不整份印出
+        # (見 load_merged_config() 的警告)。
+        merged_config = load_merged_config(config_paths)
+        dry_run = bool(merged_config.get("dry_run", True))
         secrets_file = detect_secrets_file(config_paths)
-        decision = cross_check_environment(dry_run, secrets_file)
+        decision = cross_check_environment(dry_run, secrets_file, merged_config)
 
         risk_numbers = load_risk_numbers_from_strategy() if decision.is_live else None
         commit_hash = get_git_commit_hash()

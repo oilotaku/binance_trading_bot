@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -58,6 +59,25 @@ def _dry_run_override(tmp_path, value: bool) -> str:
     return str(p)
 
 
+def _telegram_override(tmp_path) -> str:
+    """啟用 Telegram 控制通道的疊加檔(安全審查 MED-6 的 live 前提條件)。
+
+    live 環境要求 telegram/api_server 至少一個啟用,否則 kill switch 的人工介入
+    那一層沒有可用通道。config-common.json 目前兩者皆 false,所以測試 live 的
+    「正常通過」情境時必須自己疊上這個覆寫。
+    """
+    p = tmp_path / "override-telegram.json"
+    p.write_text(
+        json.dumps({"telegram": {"enabled": True, "token": "dummy", "chat_id": "dummy"}})
+    )
+    return str(p)
+
+
+# 控制通道已啟用的最小合併設定 —— 給不需要真的讀檔的 cross_check_environment 單元測試用。
+CONTROL_CHANNEL_OK = {"telegram": {"enabled": True}, "api_server": {"enabled": False}}
+CONTROL_CHANNEL_OFF = {"telegram": {"enabled": False}, "api_server": {"enabled": False}}
+
+
 # ---------------------------------------------------------------------------
 # detect_secrets_file
 # ---------------------------------------------------------------------------
@@ -95,7 +115,9 @@ def test_consistent_testnet_dry_run_true():
 
 
 def test_consistent_live_dry_run_false():
-    d = pc.cross_check_environment(dry_run=False, secrets_file="secrets-live.json")
+    d = pc.cross_check_environment(
+        dry_run=False, secrets_file="secrets-live.json", merged_config=CONTROL_CHANNEL_OK
+    )
     assert d.is_consistent
     assert d.is_live
 
@@ -125,7 +147,9 @@ def test_contradiction_live_with_no_credential_source(monkeypatch):
 def test_live_with_env_var_credentials_is_not_flagged_missing_source(monkeypatch):
     """env var 金鑰來源(Docker 部署模式,security-policy.md 2.1 節)應視為合法來源。"""
     monkeypatch.setenv("FREQTRADE__EXCHANGE__KEY", "dummy")
-    d = pc.cross_check_environment(dry_run=False, secrets_file=None)
+    d = pc.cross_check_environment(
+        dry_run=False, secrets_file=None, merged_config=CONTROL_CHANNEL_OK
+    )
     assert d.is_consistent
     assert d.is_live
 
@@ -151,7 +175,9 @@ def test_contradiction_secrets_file_and_env_var_both_present(monkeypatch, secret
     # dry_run 取與 secrets 檔案相符的值,確保被偵測到的矛盾是「兩個金鑰來源並存」
     # 這一條本身,而不是順帶被 (a)/(b) 那兩條抓到。
     dry_run = secrets_file == "secrets-testnet.json"
-    d = pc.cross_check_environment(dry_run=dry_run, secrets_file=secrets_file)
+    d = pc.cross_check_environment(
+        dry_run=dry_run, secrets_file=secrets_file, merged_config=CONTROL_CHANNEL_OK
+    )
     assert not d.is_consistent
     conflict = [p for p in d.problems if "優先序" in p]
     assert len(conflict) == 1, f"應恰好有一條「兩個金鑰來源並存」的矛盾:{d.problems}"
@@ -197,6 +223,45 @@ def test_load_merged_dry_run_missing_file_aborts():
         pc.load_merged_dry_run([COMMON, str(_REPO_ROOT / "does" / "not" / "exist.json")])
 
 
+def test_load_merged_config_returns_full_merged_dict():
+    """MED-6 需要的不只是 dry_run,還要 telegram/api_server —— 確認整份設定拿得到。"""
+    cfg = pc.load_merged_config([COMMON, CONFIG_TESTNET])
+    assert cfg["dry_run"] is True
+    assert "telegram" in cfg and "api_server" in cfg
+
+
+# ---------------------------------------------------------------------------
+# launch_freqtrade —— 安全審查 LOW-8:不留下孤兒行程
+#
+# 平台差異(實測,不是推論):POSIX 用 os.execv 直接取代行程;Windows 上 os.execv
+# 實測會「立刻回傳 exit 0 給呼叫端,新 process 以另一個 PID 在背景獨立存活」,
+# 反而正是要防的孤兒情境,因此改用 kill-on-close Job Object。
+# 「父行程死掉子行程跟著死」的驗證需要真的殺一個 process,不適合放在單元測試裡,
+# 已於交付時手動實跑驗證(見交付說明)。這裡驗證可自動化的部分。
+# ---------------------------------------------------------------------------
+
+
+def test_launch_freqtrade_dispatches_to_the_platform_specific_path(monkeypatch):
+    monkeypatch.setattr(pc, "build_launch_command", lambda _c, _p: ["FAKE_CMD"])
+    monkeypatch.setattr(pc, "_run_in_kill_on_close_job", lambda _cmd: 41)
+    monkeypatch.setattr(pc, "_exec_replacing_current_process", lambda _cmd: 42)
+    expected = 41 if os.name == "nt" else 42
+    assert pc.launch_freqtrade([COMMON], []) == expected
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows 專用啟動路徑")
+def test_windows_job_object_launcher_propagates_exit_code():
+    """子行程的 exit code 必須原樣傳回 —— execv 在 Windows 上實測會遺失它(恆為 0)。"""
+    rc = pc._run_in_kill_on_close_job([sys.executable, "-c", "import sys; sys.exit(7)"])
+    assert rc == 7
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows 專用啟動路徑")
+def test_windows_kill_on_close_job_can_be_created():
+    """建不出 job object 時會降級成無保護的子行程,所以要確認這台機器上建得出來。"""
+    assert pc._create_kill_on_close_job()
+
+
 # ---------------------------------------------------------------------------
 # 端到端:testnet/live 兩條標準組合的完整交叉核對結果
 # ---------------------------------------------------------------------------
@@ -224,13 +289,91 @@ def test_end_to_end_live_combo_requires_explicit_dry_run_false(tmp_secrets):
 
 
 def test_end_to_end_live_combo_consistent_once_dry_run_explicitly_false(tmp_secrets, tmp_path):
-    override = _dry_run_override(tmp_path, False)
-    paths = [COMMON, CONFIG_LIVE, tmp_secrets["live"], override]
-    dry_run = pc.load_merged_dry_run(paths)
+    """dry_run 明確關掉 + 控制通道啟用 —— 這才是唯一應該放行的 live 組合。"""
+    paths = [
+        COMMON,
+        CONFIG_LIVE,
+        tmp_secrets["live"],
+        _dry_run_override(tmp_path, False),
+        _telegram_override(tmp_path),
+    ]
+    merged = pc.load_merged_config(paths)
     secrets = pc.detect_secrets_file(paths)
-    decision = pc.cross_check_environment(dry_run, secrets)
-    assert decision.is_consistent
+    decision = pc.cross_check_environment(bool(merged["dry_run"]), secrets, merged)
+    assert decision.is_consistent, decision.problems
     assert decision.is_live
+
+
+# ---------------------------------------------------------------------------
+# cross_check_environment (e):live 且 Telegram/API server 皆關閉 —— 安全審查 MED-6
+#
+# security-policy.md 5.2 節、risk-policy.md 5.2 節:kill switch 是兩層設計,自動熔斷
+# 由 protections 保證,人工介入那一層完全依賴即時推播 + 遠端控制通道。兩者都關閉時
+# 這一層等於不存在,不得啟動 live。
+# ---------------------------------------------------------------------------
+
+
+def test_live_with_both_control_channels_disabled_is_a_contradiction():
+    d = pc.cross_check_environment(
+        dry_run=False, secrets_file="secrets-live.json", merged_config=CONTROL_CHANNEL_OFF
+    )
+    assert not d.is_consistent
+    assert any("forceexit" in p for p in d.problems)
+
+
+@pytest.mark.parametrize(
+    "merged",
+    [
+        {"telegram": {"enabled": True}, "api_server": {"enabled": False}},
+        {"telegram": {"enabled": False}, "api_server": {"enabled": True}},
+        {"telegram": {"enabled": True}, "api_server": {"enabled": True}},
+    ],
+)
+def test_live_passes_when_at_least_one_control_channel_is_enabled(merged):
+    d = pc.cross_check_environment(
+        dry_run=False, secrets_file="secrets-live.json", merged_config=merged
+    )
+    assert d.is_consistent, d.problems
+
+
+@pytest.mark.parametrize("merged", [CONTROL_CHANNEL_OFF, None, {}])
+def test_dry_run_is_never_blocked_by_the_control_channel_rule(merged):
+    """testnet/dry-run 沒有真實資金風險,這條前提不適用,不得因此被擋。"""
+    d = pc.cross_check_environment(
+        dry_run=True, secrets_file="secrets-testnet.json", merged_config=merged
+    )
+    assert d.is_consistent, d.problems
+
+
+def test_live_without_merged_config_fails_closed():
+    """讀不到合併後設定時,live 一律當成「無法確認」而擋下(fail closed)。"""
+    d = pc.cross_check_environment(
+        dry_run=False, secrets_file="secrets-live.json", merged_config=None
+    )
+    assert not d.is_consistent
+
+
+def test_missing_telegram_and_api_server_keys_are_treated_as_disabled():
+    """設定裡根本沒有這兩個區塊時,等同兩者皆停用(freqtrade 的預設就是停用)。"""
+    d = pc.cross_check_environment(
+        dry_run=False, secrets_file="secrets-live.json", merged_config={"dry_run": False}
+    )
+    assert not d.is_consistent
+
+
+def test_current_repo_live_combo_is_blocked_by_control_channel_rule(tmp_secrets, tmp_path):
+    """
+    端到端 pin:目前 repo 裡的 config-common.json 兩個控制通道都是 false,
+    所以即使操作者把 dry_run 改成 false,live 啟動仍然應該被擋下。
+    未來若有人開啟 telegram/api_server,這個測試會失敗,提醒同步檢查本規則。
+    """
+    paths = [COMMON, CONFIG_LIVE, tmp_secrets["live"], _dry_run_override(tmp_path, False)]
+    merged = pc.load_merged_config(paths)
+    decision = pc.cross_check_environment(
+        bool(merged["dry_run"]), pc.detect_secrets_file(paths), merged
+    )
+    assert not decision.is_consistent
+    assert any("kill switch" in p for p in decision.problems)
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +473,7 @@ def test_main_unexpected_exception_is_caught_and_redacted(monkeypatch, capsys):
     def _boom(_config_paths):
         raise RuntimeError(f'unexpected failure while reading {{"key": "{fake_key}"}}')
 
-    monkeypatch.setattr(pc, "load_merged_dry_run", _boom)
+    monkeypatch.setattr(pc, "load_merged_config", _boom)
 
     rc = pc.main(["--config", COMMON])
 
@@ -347,7 +490,7 @@ def test_main_preflight_abort_message_is_also_redacted(monkeypatch, capsys):
     def _abort(_config_paths):
         raise pc.PreflightAbort(f'設定檔內容:{{"secret": "{fake_key}"}}')
 
-    monkeypatch.setattr(pc, "load_merged_dry_run", _abort)
+    monkeypatch.setattr(pc, "load_merged_config", _abort)
 
     rc = pc.main(["--config", COMMON])
 

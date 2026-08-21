@@ -408,6 +408,13 @@ class RegimeFilteredMomentumBreakout(IStrategy):
                 self.dp.runmode if self.dp else None, self._fatfinger_last_equity
             ),
         )
+        # 安全審查 MED-4:基準值的更新**不以本次驗證通過為條件**。只要這次的
+        # equity 本身是合理的有限正數(= equity_usable_as_baseline),就讓它成為
+        # 下次跳動比對的基準——否則一次跳動誤判會讓基準永遠停在舊值,之後每次
+        # 比對只會差得更遠,單次異常升級成永久鎖死進場。完整理由見
+        # fatfinger_guard.validate_sizing_inputs 的「兩個檢查的職責分離」段落。
+        if validation.equity_usable_as_baseline:
+            self._fatfinger_last_equity = total_equity
         if not validation.is_valid:
             logger.warning(
                 "[%s] 胖手指防護:custom_stake_amount 輸入合理性檢查未通過,"
@@ -416,7 +423,6 @@ class RegimeFilteredMomentumBreakout(IStrategy):
                 validation.reason,
             )
             return 0.0
-        self._fatfinger_last_equity = total_equity
 
         k = self.ATR_MULTIPLIER
 
@@ -447,18 +453,28 @@ class RegimeFilteredMomentumBreakout(IStrategy):
         )
 
         final_stake = min(stake_from_atr, notional_cap, combined_notional_cap, max_stake)
-        if min_stake and final_stake < min_stake:
-            return 0.0  # 算出的部位小於交易所最小下單量,寧可不下單也不要下超額單
 
         # --- security-policy.md 5.2 節第 1/2 點:獨立來源硬上限的最終裁剪 ---
         # fatfinger_guard.clamp_stake 用的是模組自己獨立宣告的 NOTIONAL_SINGLE_CAP/
         # NOTIONAL_COMBINED_CAP(數值上與上面 self.NOTIONAL_SINGLE_CAP/
         # self.NOTIONAL_COMBINED_CAP 相同,但物理上是兩份獨立宣告,見該模組
         # docstring)——即使上面 min() 那一行本身有 bug,這裡仍能獨立擋下超額值。
+        #
+        # 順序(安全審查 LOW-10):裁剪必須在 min_stake 檢查**之前**。若先檢查
+        # min_stake 再裁剪,而裁剪把金額壓到 min_stake 以下,freqtrade 的
+        # validate_stake_amount() 會把它拉回 min_stake(容許最多 +30%),送出的
+        # 金額因此可能又略微超過胖手指硬上限,接著在 confirm_trade_entry 的背書
+        # 檢查(容差極小)被拒絕,整筆訊號被靜默丟棄。先裁剪、再拿裁剪後的金額
+        # 跟 min_stake 比,結果是明確的「不下單」而不是「下了又被自己擋掉」。
         clamped = ffg.clamp_stake(final_stake, total_equity, combined_used_notional)
         if clamped.was_clamped:
             logger.warning("[%s] 胖手指防護:%s", pair, clamped.reason)
-        return clamped.stake
+        final_stake = clamped.stake
+
+        if min_stake and final_stake < min_stake:
+            return 0.0  # 算出的部位小於交易所最小下單量,寧可不下單也不要下超額單
+
+        return final_stake
 
     def _risk_fraction_of_trade(self, trade: Trade, total_equity: float) -> float:
         """回推一筆既有交易目前佔用了多少 risk_fraction 配額,供合併上限計算使用。"""
