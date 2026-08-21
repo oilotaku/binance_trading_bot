@@ -248,6 +248,19 @@ order_types:
 
 **6.3 節步驟三(唯讀端點驗證)尚未執行**——需要一組沙盒金鑰才能做,留給金鑰到位後的下一步。
 
+### 6.3.2 再次修正(2026-08-22,同日):不需要金鑰就能完整啟動——先前的「金鑰是硬性必要條件」結論本身有誤
+
+6.3.1 節與更早的 `development-plan.md` 記錄都誤判了「啟動時需要有效 API key」這件事,根本原因追查到底後發現:**問題不是沙盒/正式環境需要金鑰,是 `config-testnet.json` 原本寫 `"key": ""`(空字串)。**
+
+用 ccxt 4.5.73 直接排除法實測:
+
+- `apiKey=""`(空字串)→ `ccxt.binance.fetch_markets()` 對 `spot` 市場額外呼叫 `sapiGetEquityMarketExchangeInfo`(該呼叫的觸發條件是 `self.apiKey is not None`——**空字串滿足這個條件,因為空字串不是 `None`**),而這個端點需要簽名,簽名時因為金鑰內容是空字串而失敗,拋出 `AuthenticationError: binance requires "apiKey" credential`。這正是 6.3.1 節與此前所有實測看到的錯誤訊息,但**誤診了病因**——訊息看起來像「缺金鑰」,實際是「傳了一個會被誤判成『有金鑰』的空字串」。
+- `apiKey=None`(即設定檔完全不寫 `exchange.key`/`exchange.secret` 這兩個鍵,Python 端 `dict.get("key")` 自然回傳 `None`)→ 上述額外呼叫的觸發條件不成立,`fetch_markets()`/`fetch_ohlcv()` 對沙盒**完全不需要任何憑證**,直接回傳真實市場資料(實測 2284 個市場、真實 K 線)。
+
+`user_data/configs/config-testnet.json` 已移除 `"key": ""`/`"secret": ""` 這兩行佔位。**已完整實測驗證**:用 `scripts/preflight_check.py`(唯一正式入口)+ testnet 確認流程,全程零金鑰,成功連上真正的 Binance Spot Testnet 沙盒、同步錢包、刷新真實交易對清單(`BTC/USDT`、`ETH/USDT`)、載入全部 protections,乾淨進入 `STOPPED` 狀態(`initial_state: stopped` 的既有設計,等待操作者手動 `/start`)。**testnet/dry-run 環境現在不需要任何金鑰即可完整啟動並連上真實 API。**
+
+若之後想在唯讀端點(帳戶餘額、訂單狀態)這類確實需要簽名的呼叫上驗證,或想更貼近未來 live 環境的行為,仍可在 `secrets-testnet.json` 疊加一組沙盒金鑰(`testnet.binance.vision`,GitHub 登入即可申請)——`exchange.key`/`exchange.secret` 一旦在疊加鏈後段被設定(即使是有效字串),deep merge 會覆蓋掉這裡的「不設值」,兩種模式都支援,但**這不再是啟動的必要條件**。
+
 ### 6.4 結構性防護不依賴這個細節(重申 `architecture-spec.md` 7.4 節既有立場)
 
 不論步驟一或步驟二哪個最終在實作當下生效,本專案 testnet/live 環境分離的**主要防線**從來不是端點覆寫語法本身——[`architecture-spec.md`](./architecture-spec.md) 7.2/7.3 節已確立的「完全不同的設定檔 + 完全不同的金鑰來源 + 完全不同的資料庫路徑」這個結構性設計,以及 [`security-policy.md`](./security-policy.md) 第 4 節的啟動時強制環境確認機制,才是防止「環境搞混」的主要防線。端點覆寫解決的是一個**功能性**問題(「testnet 環境的請求真的有打到 testnet 伺服器嗎」),不是一個**安全性**問題(「這次啟動是不是不小心用錯了環境」)——兩者職責不同,不應該混淆,本節的查證結果不影響、也不應該被拿來替代第 4 節已有的防護設計。

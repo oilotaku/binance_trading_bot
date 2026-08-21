@@ -13,8 +13,6 @@
     "logfile": "user_data/logs/freqtrade-testnet.log",
 
     "exchange": {
-        "key": "",
-        "secret": "",
         "ccxt_config": {
             "urls": {
                 "api": {
@@ -25,5 +23,5 @@
         },
         "_ccxt_config_comment": "把 ccxt 的 API 端點換成 Binance 官方 Spot Testnet 沙盒(上方 _sandbox_correction 已交代查證過程)。這個 dict 會與 config-common.json 的 `exchange.ccxt_config`(目前是空 dict)deep merge,不會互相覆蓋掉。"
     },
-    "_exchange_comment": "啟動時仍然需要一組有效的 API key 才能通過 reload_markets()(2026-08-21/22 實測結論,dry_run 不代表不需要金鑰),但現在需要的是**沙盒金鑰**,不是正式帳戶金鑰——見上方 _sandbox_key_note 取得方式。secrets-testnet.json(不進 git,見 security-policy.md 2.1 節)填入這組沙盒金鑰即可,不得填正式帳戶金鑰進這個檔案(正式帳戶金鑰只應該出現在 secrets-live.json)。"
+    "_exchange_comment": "⚠️ 2026-08-22 再次修正(推翻本檔案昨天寫的『仍然需要一組有效金鑰』結論):根本原因追查到底,問題不是『需要金鑰』,是這裡原本寫 `\"key\": \"\"`(空字串)——ccxt 判斷『是否提供了金鑰』用的是 `self.apiKey is not None`,空字串滿足這個條件(空字串不是 None),導致 ccxt 誤以為『有金鑰』而去呼叫需要簽名的 `sapiGetEquityMarketExchangeInfo`,簽名時才因為金鑰內容是空字串而失敗,報錯訊息（`requires \"apiKey\" credential`）誤導了 2026-08-21/22 稍早的結論。已用 ccxt 4.5.73 直接實測驗證:`apiKey=None`(即 Freqtrade 設定裡完全不寫 `exchange.key`/`exchange.secret` 這兩個鍵,`exchange_config.get(\"key\")` 自然回傳 `None`)時,`fetch_markets()`/`fetch_ohlcv()` 對沙盒**完全不需要任何憑證**就能拿到真實市場資料。本檔案因此**移除**原本的 `\"key\": \"\"`/`\"secret\": \"\"` 佔位——若之後想接上一組沙盒金鑰(例如要測試下單相關的唯讀端點),可在 `secrets-testnet.json` 疊加 `exchange.key`/`exchange.secret`,deep merge 後會覆蓋這裡的『不設值』,兩種模式都支援。"
 }
