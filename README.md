@@ -173,12 +173,13 @@ python analysis/tools/run_strategy4_evaluation.py
 - 策略四:假說設計、離線模擬驗證、Freqtrade 框架內技術驗證,CP-007 修正後**第一層通過、第二層(超額報酬)不通過**(見 [`strategy-4-cp007-results.md`](docs/strategy-4-cp007-results.md))
 - 策略五:假說設計、風控重新校準(CP-008)、Freqtrade 實作、對真實資料正式判定,**第一層通過、第二層與核心因果檢定(配對比較)均不通過**(見 [`strategy-5-results.md`](docs/strategy-5-results.md))
 - 統計驗證管線 18 個模組 + 137 個測試
+- 執行層安全機制(啟動前檢查、獨立於策略計算路徑的胖手指防護、日誌脫敏)已實作並經 `trading-security-reviewer` 審查修復,`scripts/preflight_check.py` 已完整實測連上真正的 Binance Spot Testnet 沙盒(零金鑰、零真實資金風險),見 [`development-plan.md`](docs/development-plan.md) Phase 10 進度
 
 **明確尚未完成的事**
 
 - 策略二、三仍在 backlog,未進入驗證
 - 三個已測試策略均未達到可投入真實資金(即使是模擬資金的 paper trading 正式階段)的標準,見 [`backtest-procedure.md`](docs/backtest-procedure.md) 7.1 節的資格條件
-- 即時 dry-run / paper trading 尚未執行——本環境的出口網路對 Binance 即時 API(含 Testnet)有地區限制,技術驗證改用 Freqtrade backtesting 引擎完成(見 [`strategy-4-freqtrade-technical-demo.md`](docs/strategy-4-freqtrade-technical-demo.md))
+- 正式的 paper trading 觀察期尚未啟動(執行層與沙盒連線已就緒,但因三個已測試策略均未通過驗證,目前沒有夠格進入這個階段的策略,見上一點)
 
 ---
 
