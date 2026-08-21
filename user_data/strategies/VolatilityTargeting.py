@@ -26,10 +26,19 @@
   - 唯一的風控是 σ_target 本身 + 回撤斜坡(30%→40%),兩者都在
     adjust_trade_position / custom_stake_amount 內以純運算方式決定曝險,
     不透過 Freqtrade Protections(它做不到「調整目標曝險」,只能鎖倉)。
+
+security-policy.md 第 5 節:胖手指防護層。custom_stake_amount 尾端(final_stake
+算出後、return 之前)新增一層獨立裁剪,並新增 confirm_trade_entry(本檔案原本
+沒有這個 callback)做送出前最後一次背書檢查——兩者都呼叫 fatfinger_guard.py
+(獨立宣告的硬上限常數,與策略一/五共用同一份獨立模組)。策略四沒有 ATR,
+用 realized_vol(sigma_hat)扮演部位大小公式分母/風險指標的同一角色(見
+fatfinger_guard.validate_sizing_inputs 的參數說明)。這一層是新增的防禦,
+**不改動**上面已交代的 σ_target/回撤斜坡計算邏輯本身。
 """
 
 from __future__ import annotations
 
+import logging
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -44,7 +53,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+_STRATEGY_DIR = Path(__file__).resolve().parent
+if str(_STRATEGY_DIR) not in sys.path:
+    sys.path.insert(0, str(_STRATEGY_DIR))
+
 from analysis import vol_target as vt  # noqa: E402
+import fatfinger_guard as ffg  # noqa: E402  security-policy.md 第 5 節,獨立胖手指防護層
+
+logger = logging.getLogger(__name__)
 
 # 目標曝險低於此值視為「等同於零」,觸發完整出場而非用 adjust_trade_position
 # 減碼到底——Freqtrade 的 adjust_trade_position 只能減碼到 min_stake,無法把
@@ -90,6 +106,11 @@ class VolatilityTargeting(IStrategy):
         # 對齊 vt.simulate() 的 equity_path,但這裡追蹤的是**整個組合**的權益
         # (透過 self.wallets),不是單一部位。
         self._equity_log_history: list[tuple[object, float]] = []
+        # security-policy.md 5.2 節第 3 點:胖手指防護層需要「上一次讀值」才能
+        # 判斷 equity 是否有異常跳動,IStrategy 本身不提供這個狀態,這裡新增一個
+        # instance attribute 自行維護。只被 custom_stake_amount/fatfinger_guard
+        # 讀寫,不影響上面 _equity_log_history 或任何既有計算邏輯。
+        self._fatfinger_last_equity: float | None = None
 
     # ---- 指標:與 vt.realized_volatility 同一套定義 ----
 
@@ -174,12 +195,100 @@ class VolatilityTargeting(IStrategy):
         dd = self._record_and_get_drawdown(current_time)
         w = self._target_weight_per_pair(sigma_hat, dd)
 
+        # --- security-policy.md 5.2 節第 3 點:獨立輸入合理性檢查(胖手指防護層) ---
+        # 策略四沒有 ATR,用 realized_vol(sigma_hat)扮演公式分母/風險指標的
+        # 同一角色。_target_weight_per_pair 內部已經有自己的 isfinite/正數檢查
+        # (見上方定義),這裡用獨立模組 fatfinger_guard 不透過那條計算路徑
+        # 重新驗證一次,額外涵蓋「equity 相對上次讀值異常跳動」這個上面完全
+        # 沒有檢查的情況。
+        #
+        # `equity_jump_baseline()`:回測/hyperopt 時把跳動比對關掉(傳入 None),
+        # 理由同策略一,完整說明見 fatfinger_guard.equity_jump_baseline 的 docstring
+        # ——這條規則若在回測誤觸發,會讓 docs/strategy-4-cp007-results.md 的已定案
+        # 數字無法重現。「有限正數」檢查在所有 runmode 下都繼續生效。
+        equity_for_validation = self.wallets.get_total_stake_amount()
+        validation = ffg.validate_sizing_inputs(
+            equity=equity_for_validation,
+            risk_indicator=sigma_hat,
+            last_equity=ffg.equity_jump_baseline(
+                self.dp.runmode if self.dp else None, self._fatfinger_last_equity
+            ),
+        )
+        if not validation.is_valid:
+            logger.warning(
+                "[%s] 胖手指防護:custom_stake_amount 輸入合理性檢查未通過,"
+                "本次訊號跳過不下單(fail closed)。原因:%s",
+                pair,
+                validation.reason,
+            )
+            return 0.0
+        self._fatfinger_last_equity = equity_for_validation
+
         total_equity = self.wallets.get_total_stake_amount()
         stake = w * total_equity
         floor = min_stake or 0.0
         if stake < floor:
             return 0.0  # 低於交易所最小下單量,寧可不進場也不要下一個假的部位
-        return min(stake, max_stake)
+
+        # --- security-policy.md 5.2 節第 1/2 點:獨立來源硬上限的最終裁剪 ---
+        # fatfinger_guard.NOTIONAL_SINGLE_CAP/COMBINED_CAP 與 vt.MAX_EXPOSURE
+        # (CP-005 3.5 節,已對應 risk-policy.md 4.3 節合併名目上限)各自獨立
+        # 宣告——即使 _target_weight_per_pair 內的 vt.MAX_EXPOSURE 換算路徑
+        # 本身有 bug,這裡仍能獨立擋下超額值。
+        final_stake = min(stake, max_stake)
+        combined_used_notional = sum(
+            (t.stake_amount or 0.0) for t in Trade.get_open_trades() if t.pair != pair
+        )
+        clamped = ffg.clamp_stake(final_stake, total_equity, combined_used_notional)
+        if clamped.was_clamped:
+            logger.warning("[%s] 胖手指防護:%s", pair, clamped.reason)
+        return clamped.stake
+
+    def confirm_trade_entry(
+        self,
+        pair: str,
+        order_type: str,
+        amount: float,
+        rate: float,
+        time_in_force: str,
+        current_time: datetime,
+        entry_tag: str | None,
+        side: str,
+        **kwargs,
+    ) -> bool:
+        """
+        security-policy.md 第 5 節:胖手指防護層,送出前最後一次背書檢查。
+
+        策略四本身沒有 risk-policy.md 3.1 節那種每日虧損熔斷自訂邏輯——CP-005
+        已論證事件驅動機制對這個永遠在市、狀態驅動的策略不適用(見檔案開頭
+        風控段落),本檔案原本也沒有 confirm_trade_entry。這裡新增的**只是**
+        獨立的胖手指背書檢查,不引入任何新的訊號/風控判斷,也不改動
+        custom_stake_amount/adjust_trade_position 的既有計算邏輯。
+
+        confirm_trade_entry 依 Freqtrade 介面只能回傳 bool,無法裁剪 amount
+        (fatfinger_guard.py 模組 docstring「接線位置」已查證說明)——真正的
+        裁剪已經在 custom_stake_amount 尾端完成,這裡只是防禦性地重新核對
+        即將送出的 amount*rate 是否仍在獨立上限內,理論上應該永遠通過。
+        """
+        equity = self.wallets.get_total_stake_amount() if self.wallets else None
+        combined_used_notional = sum(
+            (t.stake_amount or 0.0) for t in Trade.get_open_trades() if t.pair != pair
+        )
+        backstop = ffg.validate_notional_within_caps(
+            notional=amount * rate,
+            equity=equity,
+            combined_used_notional=combined_used_notional,
+        )
+        if not backstop.is_valid:
+            logger.warning(
+                "[%s] 胖手指防護:confirm_trade_entry 最終背書檢查未通過,拒絕本次下單。"
+                "原因:%s",
+                pair,
+                backstop.reason,
+            )
+            return False
+
+        return True
 
     # ---- 既有部位再平衡 ----
 

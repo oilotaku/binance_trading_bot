@@ -12,9 +12,17 @@ Kelly 倉位公式的 f*(需要 Phase 6 walk-forward 產出的 OOS Sharpe/波動
 custom_stake_amount 暫時只採用 risk-policy.md 的硬上限,待 Phase 6 backtest-procedure.md
 跑出真實數據後,再依 statistical-methodology.md 5.2 節公式補上 Kelly 項——這是刻意的、
 有文件依據的簡化,不是遺漏(硬上限本來就是 min() 的一部分,現在只是暫時只有這一項生效)。
+
+security-policy.md 第 5 節:胖手指防護層。custom_stake_amount 尾端(final_stake 算出後、
+return 之前)與 confirm_trade_entry 尾端(送出前最後一次背書)各新增一層獨立檢查,
+呼叫 fatfinger_guard.py(獨立宣告的硬上限常數,不透過本檔案的 Kelly/ATR 計算路徑推導)。
+這一層是新增的防禦,**不改動**上面說明的既有訊號/停損/停利/風控計算邏輯本身。
 """
 
+import logging
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -23,6 +31,14 @@ from pandas import DataFrame
 
 from freqtrade.persistence import Trade
 from freqtrade.strategy import IntParameter, IStrategy, stoploss_from_absolute
+
+_STRATEGY_DIR = Path(__file__).resolve().parent
+if str(_STRATEGY_DIR) not in sys.path:
+    sys.path.insert(0, str(_STRATEGY_DIR))
+
+import fatfinger_guard as ffg  # noqa: E402  security-policy.md 第 5 節,獨立胖手指防護層
+
+logger = logging.getLogger(__name__)
 
 
 class RegimeFilteredMomentumBreakout(IStrategy):
@@ -156,6 +172,14 @@ class RegimeFilteredMomentumBreakout(IStrategy):
         },
     ]
 
+    def __init__(self, config: dict) -> None:
+        super().__init__(config)
+        # security-policy.md 5.2 節第 3 點:胖手指防護層需要「上一次讀值」才能
+        # 判斷 equity 是否有異常跳動,IStrategy 本身不提供這個狀態,這裡新增一個
+        # instance attribute 自行維護。只被 custom_stake_amount/fatfinger_guard
+        # 讀寫,不影響任何既有訊號/出場/停損計算邏輯。
+        self._fatfinger_last_equity: float | None = None
+
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         """向量化計算 Donchian 通道、成交量均量、ATR。全部指標僅使用已收盤 K 棒。"""
         # 只算 DONCHIAN_SCAN_POINTS 這 5 個週期,不是整個 20–55 的 range ——
@@ -278,6 +302,29 @@ class RegimeFilteredMomentumBreakout(IStrategy):
         if daily_pnl_ratio <= self.DAILY_LOSS_BREAKER_THRESHOLD:
             return False
 
+        # --- security-policy.md 5.2 節:胖手指防護層,送出前最後一次背書檢查 ---
+        # confirm_trade_entry 依 Freqtrade 介面只能回傳 bool,無法裁剪 amount
+        # (fatfinger_guard.py 模組 docstring「接線位置」已查證說明)——真正的
+        # 裁剪已經在 custom_stake_amount 尾端完成,這裡只是防禦性地重新核對
+        # 即將送出的 amount*rate 是否仍在獨立上限內,理論上應該永遠通過。
+        equity = self.wallets.get_total_stake_amount() if self.wallets else None
+        combined_used_notional = sum(
+            (t.stake_amount or 0.0) for t in Trade.get_open_trades() if t.pair != pair
+        )
+        backstop = ffg.validate_notional_within_caps(
+            notional=amount * rate,
+            equity=equity,
+            combined_used_notional=combined_used_notional,
+        )
+        if not backstop.is_valid:
+            logger.warning(
+                "[%s] 胖手指防護:confirm_trade_entry 最終背書檢查未通過,拒絕本次下單。"
+                "原因:%s",
+                pair,
+                backstop.reason,
+            )
+            return False
+
         return True
 
     def _get_daily_pnl_ratio(self, current_time: datetime) -> float | None:
@@ -342,6 +389,35 @@ class RegimeFilteredMomentumBreakout(IStrategy):
         if pd.isna(last_atr) or last_atr <= 0 or current_rate <= 0:
             return 0.0
 
+        # --- security-policy.md 5.2 節第 3 點:獨立輸入合理性檢查(胖手指防護層) ---
+        # 與上面兩個既有 if 區塊(total_equity<=0、ATR<=0)刻意有重疊——上面兩個
+        # 是主要計算路徑自己的防呆,但無法偵測 NaN(Python 的 `not float("nan")`
+        # 為 False,NaN 會直接漏過上面的檢查繼續往下算)。這裡呼叫獨立模組
+        # fatfinger_guard 重新驗證一次,額外涵蓋 NaN/inf 與「equity 相對上次讀值
+        # 異常跳動」兩種上面完全沒有檢查的情況,不影響上面既有邏輯本身。
+        #
+        # `equity_jump_baseline()`:回測/hyperopt 時把跳動比對關掉(傳入 None)。
+        # 回測同樣會呼叫 custom_stake_amount,而兩次進場訊號之間相隔數週數月時,
+        # 權益變動超過 50% 是常態不是異常;誤觸發會讓回測從此永久不再進場,悄悄
+        # 改變 docs/pass-b-results.md 等已定案結果的可重現性。完整理由見該函式
+        # docstring。「有限正數」檢查不受影響,所有 runmode 下都繼續生效。
+        validation = ffg.validate_sizing_inputs(
+            equity=total_equity,
+            risk_indicator=last_atr,
+            last_equity=ffg.equity_jump_baseline(
+                self.dp.runmode if self.dp else None, self._fatfinger_last_equity
+            ),
+        )
+        if not validation.is_valid:
+            logger.warning(
+                "[%s] 胖手指防護:custom_stake_amount 輸入合理性檢查未通過,"
+                "本次訊號跳過不下單(fail closed)。原因:%s",
+                pair,
+                validation.reason,
+            )
+            return 0.0
+        self._fatfinger_last_equity = total_equity
+
         k = self.ATR_MULTIPLIER
 
         # risk-policy.md 4.2 節:合併曝險上限。先算目前已用掉多少 combined risk_fraction。
@@ -374,7 +450,15 @@ class RegimeFilteredMomentumBreakout(IStrategy):
         if min_stake and final_stake < min_stake:
             return 0.0  # 算出的部位小於交易所最小下單量,寧可不下單也不要下超額單
 
-        return final_stake
+        # --- security-policy.md 5.2 節第 1/2 點:獨立來源硬上限的最終裁剪 ---
+        # fatfinger_guard.clamp_stake 用的是模組自己獨立宣告的 NOTIONAL_SINGLE_CAP/
+        # NOTIONAL_COMBINED_CAP(數值上與上面 self.NOTIONAL_SINGLE_CAP/
+        # self.NOTIONAL_COMBINED_CAP 相同,但物理上是兩份獨立宣告,見該模組
+        # docstring)——即使上面 min() 那一行本身有 bug,這裡仍能獨立擋下超額值。
+        clamped = ffg.clamp_stake(final_stake, total_equity, combined_used_notional)
+        if clamped.was_clamped:
+            logger.warning("[%s] 胖手指防護:%s", pair, clamped.reason)
+        return clamped.stake
 
     def _risk_fraction_of_trade(self, trade: Trade, total_equity: float) -> float:
         """回推一筆既有交易目前佔用了多少 risk_fraction 配額,供合併上限計算使用。"""
