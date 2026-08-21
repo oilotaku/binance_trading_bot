@@ -235,6 +235,19 @@ order_types:
 
 **步驟三(不論步驟一或二生效,都要做的驗證)**:啟動後透過一個唯讀端點(例如查帳戶餘額)確認回傳的是 testnet 的模擬餘額特徵(例如 [`scope.md`](./scope.md) 已定案的虛擬起始餘額量級),而非意外連上正式帳戶——這是本文件對 6.3 節「不能只信設定生效」原則的具體落地動作。
 
+### 6.3.1 實作結果(2026-08-22,已用真實網路 + 真實安裝的 ccxt 4.5.73 實測驗證)
+
+**步驟一(`sandbox: true`)未生效,原因已查明:** Freqtrade 沒有原生把 `ccxt_config.sandbox` 這個鍵轉譯成 ccxt 的 `set_sandbox_mode()` 呼叫(查證 `freqtrade/exchange/exchange.py` 全文無此邏輯)——`sandbox: true` 只是一個被原樣塞進 ccxt 建構子的普通 kwarg,不會觸發任何 URL 覆寫。
+
+**改用步驟二(手動覆寫 `urls`),已驗證有效:** 目前實際安裝的 ccxt 4.5.73 對 binance 的 `urls['api']['test']` 註冊了 `https://testnet.binance.vision/api/v3`,且 `set_sandbox_mode(True)` 實測會正確把 `urls['api']['public']`/`['private']` 換成該位址。`user_data/configs/config-testnet.json` 的 `exchange.ccxt_config.urls.api.public/private` 已直接寫死這個位址(不依賴 `set_sandbox_mode`,避免依賴 Freqtrade 未實作的轉譯層),並實測確認:
+
+1. `Configuration(...).get_config()` 合併後的 `exchange.ccxt_config` 確實包含這個覆寫(與 `config-common.json` 原本的空 `ccxt_config: {}` deep-merge 成功,未互相覆蓋掉其他鍵)。
+2. 用這個設定實際啟動 `freqtrade trade --dry-run`,連線目標確實是 `testnet.binance.vision`(觀察到的是 `reload_markets()` 需要金鑰,不是連錯地址——這證實請求真的送到沙盒端點在做認證檢查,而非落回 mainnet)。
+
+**這推翻本節原本「不依賴 Binance Testnet 沙盒,改用 dry_run 對接正式 API」的架構決定**(見 `config-testnet.json` 的 `_sandbox_correction` 註解)。改用真正的沙盒是更安全的架構:沙盒金鑰在密碼學上只對沙盒有效,即使程式碼有 bug 也不可能觸及任何真實帳戶,不像原設計的安全性完全依賴「這次程式碼真的沒有 bug 送出真實單」這個假設。**沙盒金鑰的取得門檻也遠低於原設計預期**——`testnet.binance.vision` 用 GitHub 帳號登入即可申請,不需要真實 Binance 帳戶、不需要 KYC。
+
+**6.3 節步驟三(唯讀端點驗證)尚未執行**——需要一組沙盒金鑰才能做,留給金鑰到位後的下一步。
+
 ### 6.4 結構性防護不依賴這個細節(重申 `architecture-spec.md` 7.4 節既有立場)
 
 不論步驟一或步驟二哪個最終在實作當下生效,本專案 testnet/live 環境分離的**主要防線**從來不是端點覆寫語法本身——[`architecture-spec.md`](./architecture-spec.md) 7.2/7.3 節已確立的「完全不同的設定檔 + 完全不同的金鑰來源 + 完全不同的資料庫路徑」這個結構性設計,以及 [`security-policy.md`](./security-policy.md) 第 4 節的啟動時強制環境確認機制,才是防止「環境搞混」的主要防線。端點覆寫解決的是一個**功能性**問題(「testnet 環境的請求真的有打到 testnet 伺服器嗎」),不是一個**安全性**問題(「這次啟動是不是不小心用錯了環境」)——兩者職責不同,不應該混淆,本節的查證結果不影響、也不應該被拿來替代第 4 節已有的防護設計。

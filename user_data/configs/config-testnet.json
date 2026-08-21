@@ -1,17 +1,29 @@
 {
-    "_comment": "architecture-spec.md 7.2 節。對應 scope.md『先用模擬資金』決策。依 execution-spec.md 第 6 節查證結果:Binance 在 ccxt/Freqtrade 目前版本沒有可靠的 sandbox 端點覆寫(原始碼掃描未發現任何 sandbox 相關設定),因此本專案不依賴 Binance Testnet 沙盒,改用 dry_run 模式(對接正式 Binance API 取得真實行情、但不送出真實訂單)——這與 scope.md『不投入真實資金』的核心要求完全相容,見 execution-spec.md 6.2 節步驟三的既定結論。",
+    "_comment": "architecture-spec.md 7.2 節。對應 scope.md『先用模擬資金』決策。",
+
+    "_sandbox_correction": "⚠️ 2026-08-22 修正(推翻 execution-spec.md 第 6 節原本的結論):原文件寫『Binance 在 ccxt/Freqtrade 目前版本沒有可靠的 sandbox 端點覆寫』,改用 dry_run 對接正式 API。實測用目前實際安裝的 ccxt 4.5.73 確認這個結論已經不成立——`ccxt.binance().set_sandbox_mode(True)` 會把 `urls['api']['public']/['private']` 正確換成 `https://testnet.binance.vision/api/v3`;Freqtrade 的 `exchange.ccxt_config` 會被 deep_merge 進 ccxt 建構子(見 freqtrade/exchange/exchange.py `_ccxt_config`/`_init_ccxt`),兩者都已用程式實測驗證,不是原始碼掃描推論。因此本檔案改為**真正連上 Binance 官方 Spot Testnet 沙盒**,不再對接正式帳戶 API——這是比原設計更安全的架構:sandbox 金鑰在密碼學上只對沙盒有效,即使程式碼有 bug 也不可能觸及任何真實帳戶或真實資金,不像原設計『dry_run 對接正式帳戶』那樣,安全性完全依賴『這次程式碼真的沒有 bug 送出真實單』這個假設。",
+
+    "_sandbox_key_note": "Binance Spot Testnet(testnet.binance.vision)用 GitHub 帳號登入即可申請金鑰,**不需要真實 Binance 帳戶、不需要 KYC**,沙盒本身是假資金,金鑰外洩也無法動用任何真實資產——申請門檻遠低於 security-policy.md 第 1 節原本針對正式帳戶金鑰的規範,但保留同樣的最小權限原則(唯讀即可,不需要開交易權限,因為仍搭配 dry_run=true 雙重保險)。",
 
     "dry_run": true,
     "dry_run_wallet": 3000,
-    "_dry_run_wallet_comment": "scope.md 第 2 節已確認的虛擬起始餘額(1,000-5,000 USDT 區間內取 3,000)",
+    "_dry_run_wallet_comment": "scope.md 第 2 節已確認的虛擬起始餘額(1,000-5,000 USDT 區間內取 3,000)。即使已經是沙盒,仍保留 dry_run=true 疊加一層保護(縱深防禦,不因為沙盒本身安全就少一層)。",
 
     "db_url": "sqlite:///user_data/tradesv3-testnet.sqlite",
     "logfile": "user_data/logs/freqtrade-testnet.log",
 
     "exchange": {
         "key": "",
-        "secret": ""
+        "secret": "",
+        "ccxt_config": {
+            "urls": {
+                "api": {
+                    "public": "https://testnet.binance.vision/api/v3",
+                    "private": "https://testnet.binance.vision/api/v3"
+                }
+            }
+        },
+        "_ccxt_config_comment": "把 ccxt 的 API 端點換成 Binance 官方 Spot Testnet 沙盒(上方 _sandbox_correction 已交代查證過程)。這個 dict 會與 config-common.json 的 `exchange.ccxt_config`(目前是空 dict)deep merge,不會互相覆蓋掉。"
     },
-    "_exchange_comment": "⚠️ 實測結論(2026-08-21/22,真實網路實跑,非讀原始碼推導):即使 dry_run=true,啟動時 Freqtrade 仍必須有一組有效的 API key,否則直接啟動失敗——實測以無金鑰執行 `python scripts/run_freqtrade_trade.py trade --config ... --dry-run`,在 reload_markets() 抓市場中繼資料的階段就拋出 `ccxt.base.errors.AuthenticationError: binance requires \"apiKey\" credential`。也就是說,dry_run 只保證『不送出真實訂單』,不代表『不需要金鑰』;安全審查報告 LOW-9 依 remove_exchange_credentials 原始碼推論『dry_run 會清空金鑰所以 testnet 不需要金鑰』與實測不符,以本實測結論為準。",
-    "_exchange_comment_2": "因此 secrets-testnet.json(不進 git,見 security-policy.md 2.1 節)必須填入一組真實可用的 Binance API key。權限依 security-policy.md 第 1 節:只需開啟 Enable Reading,不需要交易權限(dry_run 不會真的下單),Enable Withdrawals 務必保持關閉,建議加 IP 白名單。注意:本專案沒有真正的沙盒(見上方 _comment),這組金鑰是對接**正式 Binance 帳戶**的真實憑證,即使只有唯讀權限也會暴露帳戶持倉/餘額資訊,必須比照正式金鑰的規格妥善保管、不得進 git、不得貼進任何日誌或訊息。"
+    "_exchange_comment": "啟動時仍然需要一組有效的 API key 才能通過 reload_markets()(2026-08-21/22 實測結論,dry_run 不代表不需要金鑰),但現在需要的是**沙盒金鑰**,不是正式帳戶金鑰——見上方 _sandbox_key_note 取得方式。secrets-testnet.json(不進 git,見 security-policy.md 2.1 節)填入這組沙盒金鑰即可,不得填正式帳戶金鑰進這個檔案(正式帳戶金鑰只應該出現在 secrets-live.json)。"
 }
