@@ -383,7 +383,7 @@ freqtrade lookahead-analysis --strategy RegimeFilteredMomentumBreakout --timeran
 
 ### 7.1 進入 dry-run 的資格條件
 
-1. **第 5 節「Phase 2 通過門檻總表」5 項全部通過**,且 Pass B(非 Pass A 校準輪)的結果,不得用校準輪的數字充數。
+1. **第 5 節「Phase 2 通過門檻總表」5 項全部通過**,且 Pass B(非 Pass A 校準輪)的結果,不得用校準輪的數字充數。**對於 [`CP-005`](./change-proposals/CP-005-risk-policy-for-always-in-market.md) 界定範圍內的「永遠在市、狀態驅動」型策略,第 1 項(統計顯著性)改以 [`CP-004`](./change-proposals/CP-004-revised-targets.md) 兩層制的完整判定結果為準(第一層必達 + 第二層可選宣稱 edge,兩層皆須執行並留下正式判定文件),不適用 DSR/PSR 的逐筆交易框架——理由見 [`CP-009`](./change-proposals/CP-009-paper-trading-gate-for-always-in-market.md) 第 1 節。第 3、4 項(`n_eff` 交易序列校正、ATR-based Kelly)因同樣的力學不相容,對此類策略視為不適用,不需要另尋替代指標湊數。第 2 項(walk-forward)若該策略的參數是事前固定值而非 hyperopt 搜尋出來的,視為「搜尋空間為零」這個更保守的情況,直接視為通過。第 5 項(回撤機率估計)不受此修訂影響,仍然適用且仍須執行。**
 2. **第 6 節三項檢查清單全部執行完畢並有明確結論**(通過或已依 [`risk-policy.md`](./risk-policy.md) 第 7 節流程完成對應調整),不得帶著已知的假設落差直接跳過驗證進入下一階段。
 3. `analysis/` 產出的完整報告(含第 3 節全部指標、第 5 節總表逐項數字、第 6 節檢查結論)已存在於 repo 中(留痕,呼應 [`risk-policy.md`](./risk-policy.md) 第 7 節「寫下來」的一貫紀律),供之後 Phase 9 稽核回顧。
 

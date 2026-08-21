@@ -11,9 +11,9 @@ A Binance spot quantitative trading bot, built on [Freqtrade](https://github.com
 
 ## 這個專案的特色:先規劃、後寫程式,而且規劃會被資料修正
 
-本專案採用「設計文件先確認、才寫程式碼」的流程起步,但更重要的紀律是:**任何方法論或目標的修改,都必須在對應的策略碰到真實資料之前完成並 commit**——這條規則被反覆執行了八次(`CP-001`–`CP-008`),包括在策略一未通過之後發現並修正自己的統計方法論錯誤、策略四三度修正 `σ_target` 的推導,以及策略五為新出場機制重新校準風控核心數字。
+本專案採用「設計文件先確認、才寫程式碼」的流程起步,但更重要的紀律是:**任何方法論或目標的修改,都必須在對應的策略碰到真實資料之前完成並 commit**——這條規則被反覆執行了九次(`CP-001`–`CP-009`),包括在策略一未通過之後發現並修正自己的統計方法論錯誤、策略四三度修正 `σ_target` 的推導、策略五為新出場機制重新校準風控核心數字,以及修訂 paper trading 資格條件以正確套用到「永遠在市」型策略。
 
-This project front-loaded design, but the more important discipline running through it is pre-registration: any change to methodology or targets must be finalized and committed *before* the corresponding strategy touches real data. That rule was exercised eight times (`CP-001`–`CP-008`), including catching and fixing our own statistical methodology errors after strategy one failed, three rounds of correcting strategy four's `σ_target` derivation, and recalibrating core risk parameters for strategy five's new exit mechanism.
+This project front-loaded design, but the more important discipline running through it is pre-registration: any change to methodology or targets must be finalized and committed *before* the corresponding strategy touches real data. That rule was exercised nine times (`CP-001`–`CP-009`), including catching and fixing our own statistical methodology errors after strategy one failed, three rounds of correcting strategy four's `σ_target` derivation, recalibrating core risk parameters for strategy five's new exit mechanism, and correcting the paper-trading eligibility gate to properly fit "always-in-market" strategies.
 
 | Phase | 文件 | 內容 |
 |---|---|---|
@@ -39,6 +39,7 @@ This project front-loaded design, but the more important discipline running thro
 | [`CP-005`](docs/change-proposals/CP-005-risk-policy-for-always-in-market.md) | 為「永遠在市」型策略重新設計風控(策略一的事件驅動機制不適用) |
 | [`CP-007`](docs/change-proposals/CP-007-sigma-target-convexity-correction.md) | 修正 `σ_target` 推導漏掉的 Jensen 不等式凸性偏誤,改用不重疊的時間切分校準 |
 | [`CP-008`](docs/change-proposals/CP-008-strategy-5-backstop-and-sizing.md) | 策略五用真實資料重新校準災難後備停損(`-25%→-22%`)與 position sizing 係數(`k=3.0→k'=5.0`) |
+| [`CP-009`](docs/change-proposals/CP-009-paper-trading-gate-for-always-in-market.md) | 修訂 paper trading 資格條件,承認 CP-004 兩層制是「永遠在市」型策略的正確替代檢定(結論不變:策略四、五仍不夠格) |
 | [`target-reassessment.md`](docs/change-proposals/target-reassessment.md) | 證明原始 20–30% 報酬 + 1.0–1.5 Sharpe + 15–20% 回撤三個目標互相矛盾 |
 
 ---
@@ -127,7 +128,7 @@ This project front-loaded design, but the more important discipline running thro
 │   ├── data_quality.py            K 棒品質檢查(缺漏/異常值,見 data-requirements.md)
 │   ├── long_memory.py             變異數比檢定(市場前提診斷)
 │   ├── analog_predictability.py   k-NN 類比可預測性診斷
-│   ├── offline_exchange.py        離線交易所規格注入(Freqtrade 需要但本環境連不上即時 API)
+│   ├── offline_exchange.py        離線交易所規格注入(backtesting/hyperopt CLI 模式繞開 api.binance.com 451 用;即時連線已驗證可用,見下方「執行層」)
 │   ├── report.py                  端到端編排與通過判定
 │   ├── tools/                     資料下載/匯入、參數掃描、策略四評估腳本
 │   └── tests/                     127 個測試
