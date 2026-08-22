@@ -4,8 +4,8 @@
 
 A Binance spot quantitative trading bot, built on [Freqtrade](https://github.com/freqtrade/freqtrade) with a custom strategy and a full statistical validation pipeline.
 
-> **⚠️ 目前狀態:已對真實資料完成三個策略的正式驗證,皆未達可投入真實資金的標準。尚未投入任何真實資金。**
-> 策略一(動能突破)未通過顯著性檢定;策略四(波動度目標化)、策略五(趨勢濾波出場)第一層(回撤控制)通過,但均無統計顯著的超額報酬可主張。詳見下方「驗證結果」。
+> **⚠️ 目前狀態:已對真實資料完成三個策略的正式驗證與策略三的前置檢驗,皆未達可投入真實資金的標準。尚未投入任何真實資金。**
+> 策略一(動能突破)未通過顯著性檢定;策略四(波動度目標化)、策略五(趨勢濾波出場)第一層(回撤控制)通過,但均無統計顯著的超額報酬可主張;策略三(跨資產相對強度輪動)的 beta 中性化前置檢驗不通過,已退出開發 backlog。詳見下方「驗證結果」。
 
 ---
 
@@ -76,9 +76,17 @@ This project front-loaded design, but the more important discipline running thro
 
 完整判定見 [`strategy-5-results.md`](docs/strategy-5-results.md);風控核心數字(災難後備停損、position sizing)的重新校準見 [`CP-008`](docs/change-proposals/CP-008-strategy-5-backstop-and-sizing.md);機制已寫成真正的 Freqtrade `IStrategy`(`user_data/strategies/TrendFilterExit.py`)。
 
+### 策略三:跨資產相對強度輪動 —— ❌ 前置檢驗不通過,退出開發 backlog
+
+投入 Phase 1–6 開發前的一次性低成本證偽關卡:排除「alt 輪動報酬只是放大版 BTC beta 曝險」這個替代解釋。point-in-time 每季重建 Top-30 alt universe(180 天上市門檻、90 日成交額排名,類別性排除法幣對/貴金屬代幣/穩定幣/包裝幣/槓桿代幣),M=90 日/N=30 日/K=5 三個參數事前固定,對 Top-5 basket 的連續日報酬序列做 BTC 單因子迴歸,Newey-West HAC 標準誤。
+
+**結果:α 年化 +0.082%、p_HAC = 0.998,遠未達 `p<0.05` 門檻,不通過。** 依文件的一次性判定原則,策略三退出當前開發 backlog,不進入 Phase 1–6,不得換參數或 universe 門檻重測。過程中發現並修正一個迴歸腳本的記帳缺陷(修正前 α 年化為 −5.995%),修正方向對策略有利但顯著性反而更差,證實判定穩健、不是「看到結果回頭改方法」。
+
+完整方法論見 [`strategy-3-beta-neutrality-precheck.md`](docs/strategy-3-beta-neutrality-precheck.md);完整結果、勘誤與誠實揭露(含檢定力極低——本檢驗只能偵測到年化 55pp 以上的巨大 alpha,「不通過」不等於已排除中小幅度的正 alpha)見 [`strategy-3-beta-neutrality-results.md`](docs/strategy-3-beta-neutrality-results.md)。
+
 ### Backlog
 
-策略二(流動性衝擊均值回歸)、策略三(跨資產相對強度輪動)尚未評估,見 [`strategy-hypothesis.md`](docs/strategy-hypothesis.md)。
+策略二(流動性衝擊均值回歸)尚未評估,見 [`strategy-hypothesis.md`](docs/strategy-hypothesis.md)。
 
 ---
 
@@ -173,13 +181,14 @@ python analysis/tools/run_strategy4_evaluation.py
 - 策略一:完整參數掃描 + DSR 顯著性檢定,**結果:未通過**(見 [`pass-b-results.md`](docs/pass-b-results.md))
 - 策略四:假說設計、離線模擬驗證、Freqtrade 框架內技術驗證,CP-007 修正後**第一層通過、第二層(超額報酬)不通過**(見 [`strategy-4-cp007-results.md`](docs/strategy-4-cp007-results.md))
 - 策略五:假說設計、風控重新校準(CP-008)、Freqtrade 實作、對真實資料正式判定,**第一層通過、第二層與核心因果檢定(配對比較)均不通過**(見 [`strategy-5-results.md`](docs/strategy-5-results.md))
+- 策略三:beta 中性化前置檢驗方法論預先登錄、point-in-time universe 建構(27 季、133 檔)、對真實資料正式執行,**不通過**(α 年化 +0.082%、p_HAC=0.998),已退出開發 backlog(見 [`strategy-3-beta-neutrality-results.md`](docs/strategy-3-beta-neutrality-results.md))
 - 統計驗證管線 18 個模組 + 137 個測試
 - 執行層安全機制(啟動前檢查、獨立於策略計算路徑的胖手指防護、日誌脫敏)已實作並經 `trading-security-reviewer` 審查修復,`scripts/preflight_check.py` 已完整實測連上真正的 Binance Spot Testnet 沙盒(零金鑰、零真實資金風險),見 [`development-plan.md`](docs/development-plan.md) Phase 10 進度
 
 **明確尚未完成的事**
 
-- 策略二、三仍在 backlog,未進入驗證
-- 三個已測試策略均未達到可投入真實資金(即使是模擬資金的 paper trading 正式階段)的標準,見 [`backtest-procedure.md`](docs/backtest-procedure.md) 7.1 節的資格條件
+- 策略二仍在 backlog,未進入驗證;策略三前置檢驗已執行且不通過,退出 backlog
+- 三個已測試策略(一、四、五)均未達到可投入真實資金(即使是模擬資金的 paper trading 正式階段)的標準,見 [`backtest-procedure.md`](docs/backtest-procedure.md) 7.1 節的資格條件
 - 正式的 paper trading 觀察期尚未啟動(執行層與沙盒連線已就緒,但因三個已測試策略均未通過驗證,目前沒有夠格進入這個階段的策略,見上一點)
 
 ---
