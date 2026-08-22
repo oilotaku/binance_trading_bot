@@ -30,6 +30,7 @@ import argparse
 import hashlib
 import io
 import sys
+import urllib.parse
 import urllib.request
 import zipfile
 from datetime import date
@@ -68,9 +69,16 @@ def fetch_month(pair: str, timeframe: str, month: str) -> tuple[pd.DataFrame, st
 
     校驗和不符時直接拋例外中止 —— 不重試、不略過。一個內容與官方公布雜湊不符的
     封存檔,無論原因是傳輸損毀還是別的,都不該被靜默接受進資料集。
+
+    ⚠️ `pair` 先經 urllib.parse.quote() 編碼:實測發現幣安現貨有交易對的
+    baseAsset 是非 ASCII 字元(例如 `币安人生USDT`,中文),Python 的 http.client
+    預設把 request line 編碼為 ASCII,不先編碼會讓 urlopen() 直接以
+    UnicodeEncodeError 崩潰,而不是回傳乾淨的 404。純防禦性修正,對所有既有的
+    英數字交易對(BTCUSDT、ETHUSDT 等)行為完全不變。
     """
-    name = f"{pair}-{timeframe}-{month}.zip"
-    url = f"{BASE}/{pair}/{timeframe}/{name}"
+    safe_pair = urllib.parse.quote(pair, safe="")
+    name = f"{safe_pair}-{timeframe}-{month}.zip"
+    url = f"{BASE}/{safe_pair}/{timeframe}/{name}"
 
     blob = _get(url)
     digest = hashlib.sha256(blob).hexdigest()

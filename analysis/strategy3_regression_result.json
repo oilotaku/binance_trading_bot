@@ -1,0 +1,17 @@
+{
+  "T": 2403,
+  "hac_lag_L": 8,
+  "alpha_daily": 2.2471171870848984e-06,
+  "alpha_annual": 0.0008201977732859879,
+  "se_hac_alpha_daily": 0.00076974261359609,
+  "t_hac_alpha": 0.0029193098412296516,
+  "p_hac": 0.9976707310579653,
+  "beta": 1.1625576370723885,
+  "se_hac_beta": 0.04684520766036605,
+  "passed": false,
+  "n_rebalances": 81,
+  "n_rebalances_lt5_holdings": 0,
+  "n_rebalances_empty": 0,
+  "sample_start": "2020-01-02",
+  "sample_end": "2026-07-31"
+}
