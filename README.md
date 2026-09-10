@@ -88,6 +88,8 @@ This project front-loaded design, but the more important discipline running thro
 
 策略二(流動性衝擊均值回歸)尚未評估,見 [`strategy-hypothesis.md`](docs/strategy-hypothesis.md)。
 
+策略六(成交量衰竭出場)的 Phase 1 假說與 [`CP-010`](docs/change-proposals/CP-010-holding-period-invariant-trade-statistic.md) 方法論變更提案已撰寫,**🟡 待核准,尚未對任何資料執行**。它是對「策略一的出場」這個問題的第二次嘗試(第一次是策略五),主張趨勢的結束應由「跟風者不再進場」(成交活躍度退潮)判定,而非價格回撤;`N` 認定為 20,並預先登錄了「若不通過就停止再試」的停止規則。見 [`strategy-6-hypothesis.md`](docs/strategy-6-hypothesis.md)。
+
 ---
 
 ## 風控 / Risk Controls
